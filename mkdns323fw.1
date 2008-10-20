@@ -1,0 +1,83 @@
+.TH MKDNS323FW "1" "October 2008" "dns323-firmware-tools 0.1" "User Commands"
+.SH NAME
+mkdns323fw \- build firmware images for the DNS-323 from a kernel and initrd
+.SH SYNOPSIS
+.B mkdns323fw
+-k KERNEL -i INITRD [-d DEFAULTS] -p PRODUCT_ID -c CUSTOM_ID -m MODEL_ID -o OUTPUTFILE
+.SH DESCRIPTION
+mkdns323fw creates firmware images suitable for upload to the D-link DNS-323
+and other, similar devices based on the same basic firmware image, such as
+the Conceptronics CH3SNAS.  These firmware images contain a kernel and
+initrd, as well as various product-specific values and checksums.
+.PP
+This command can be very dangerous; although it attempts to do some very,
+very basic sanity checking, it is still quite easy to generate a firmware
+file that, when loaded into your device, will kill it stone dead.  This
+program is not able to check that you're uploading valid data to your
+device; if you brick it, you're on your own.
+.HP
+\fB\-k\fR kernel, \fB\-\-kernel\fR=\fIkernel\fR
+.IP
+specify the file containing the kernel image to embed in the firmware image. 
+This must be a uBoot image file, as produced by 
+.BR mkimage (1)
+with appropriate options to specify it as a kernel image.  Attempts to
+provide a non-uBoot file will fail, while specifying a non-kernel uBoot file
+may well brick your device.  This option is required.
+.HP
+\fB\-i\fR initrd, \fB\-\-initrd\fR=\fIinitrd\fR
+.IP
+the initrd file to embed in the firmware image.  This must be a uBoot image
+file, as produced by
+.BR mkimage (1)
+with appropriate options to specify it as a ramdisk.  The tool will refuse
+to embed a non-uBoot file, however a dodgy ramdisk will likely brick your
+device.
+.HP
+\fB\-d\fR defaults.tar.gz, \fB\-\-defaults\fR=\fIdefaults.tar.gz\fR
+.IP
+The FrodoII firmware format has the ability to embed a tarball with a default
+configuration; if you want to do this, you may use this option to do so. 
+However, the devices that the author has dealt with do not require such a
+thing, and leaving it out still produces a valid firmware (and one that is a
+bit smaller, to boot).
+.HP
+\fB\--p product_id\fR, \fB\-\-product-id\fR=\fIproduct_id\fR
+.HP
+\fB\--c custom_id\fR, \fB\-\-custom-id\fR=\fIcustom_id\fR
+.HP
+\fB\--c model_id\fR, \fB\-\-model-id\fR=\fImodel_id\fR
+.IP
+Specify the product, custom, and model ID that this firmware image is
+intended for.  As several different devices share the same firmware format,
+the intended device type is encoded in these fields.  If you do not specify
+the correct values for the device that you are targetting with your
+firmware, it is quite likely that the device will refuse the upload.
+.IP
+Known-good values for various devices are provided in the header of the
+script; please look there for more information.  You can also obtain the
+values you need by downloading an existing firmware for the device you're
+targetting and doing a bit of digging.
+.HP
+\fB\-o\fR outputfile, \fB\-\-output\fR=\fIoutputfile\fR
+.IP
+Where to write the completed firmware image.  Will overwrite any existing
+file of the same name.
+.SH BUGS
+.PP
+E-mail bug reports to
+.BR theshed+dns323-firmware-tools@hezmatt.org .
+I don't guarantee to be able to help, but I'll give it a shot.  Patches are
+far more helpful.
+.SH AUTHOR
+.BR mkdns323fw
+was written by Matt Palmer, based on reverse-engineering work 
+done by Leschinsky Oleg.
+.SH COPYRIGHT
+Copyright \(co 2008 Matt Palmer.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE,
+to the extent permitted by law.
+.SH "SEE ALSO"
+.BR mkimage (1)
