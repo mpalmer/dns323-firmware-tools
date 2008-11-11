@@ -64,8 +64,6 @@ def main
 		0
 	].pack("V9a12c5a7V")
 
-	File.open('/tmp/ctl_header', 'w') { |fd| fd.write ctl_header }
-
 	File.open(opts[:output], 'w') do |fd|
 		fd.write ctl_header
 		fd.write File.read(opts[:kernel])

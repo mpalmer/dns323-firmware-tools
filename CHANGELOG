@@ -1,0 +1,15 @@
+0.2
+---
+
+Fix a manpage copy-paste error, -c is for custom_id, -m is for model_id, and
+never the twain shall meet.
+
+Remove debugging output that wasn't properly tidied up before release.
+
+Thanks to Luk Claes for pointing these problems out.
+
+
+0.1
+---
+
+initial release, makes firmware images, nothing special.
