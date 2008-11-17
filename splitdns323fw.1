@@ -1,0 +1,49 @@
+.TH SPLITDNS323FW "1" "November 2008" "dns323-firmware-tools 0.3" "User Commands"
+.SH NAME
+splitdns323fw \- extract data from DNS-323 (and other) firmware images
+.SH SYNOPSIS
+.B splitdns323fw
+[-k KERNEL] [-i INITRD] [-d DEFAULTS] firmwarefile
+.SH DESCRIPTION
+splitdns323fw parses an existing firmware image for a device such as the
+D-Link DNS-323, DNS-321, and Conceptronics CH3SNAS.
+.PP
+By default, if only the
+.I
+firmwarefile
+.R
+option is given, the script verifies the checksums of the included
+components and prints a bunch of useful info about the image.  If you
+specify one or more of the other options, however, the corresponding section
+of the firmware image will be written to that file.
+.HP
+\fB\-k\fR kernel, \fB\-\-kernel\fR=\fIkernel\fR
+.IP
+Write the kernel part of the firmware image to the specified file.
+.HP
+\fB\-i\fR initrd, \fB\-\-initrd\fR=\fIinitrd\fR
+.IP
+Write the initrd part of the firmware image to the specified file.
+.HP
+\fB\-d\fR defaults.tar.gz, \fB\-\-defaults\fR=\fIdefaults.tar.gz\fR
+.IP
+Write the defaults part of the firmware image to the specified file.
+.SH BUGS
+.PP
+E-mail bug reports to
+.BR theshed+dns323-firmware-tools@hezmatt.org .
+I don't guarantee to be able to help, but I'll give it a shot.  Patches are
+far more helpful.
+.SH AUTHOR
+.BR splitdns323fw
+was written by Matt Palmer, based on reverse-engineering work 
+done by Leschinsky Oleg.
+.SH COPYRIGHT
+Copyright \(co 2008 Matt Palmer.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE,
+to the extent permitted by law.
+.SH "SEE ALSO"
+.BR mkimage (1),
+.BR mkdns323fw (1).
