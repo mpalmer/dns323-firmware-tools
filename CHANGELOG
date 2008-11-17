@@ -1,3 +1,12 @@
+0.3
+---
+
+Add -s option to mkdns323fw, to specify the type of firmware to build.
+
+New tool, splitdns323fw, to parse a firmware image, verify checksums, print
+IDs, and write out the various parts of the firmware image.
+
+
 0.2
 ---
 
