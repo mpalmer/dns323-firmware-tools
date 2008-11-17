@@ -36,11 +36,29 @@ device.
 .HP
 \fB\-d\fR defaults.tar.gz, \fB\-\-defaults\fR=\fIdefaults.tar.gz\fR
 .IP
-The FrodoII firmware format has the ability to embed a tarball with a default
+The firmware format has the ability to embed a tarball with a default
 configuration; if you want to do this, you may use this option to do so. 
 However, the devices that the author has dealt with do not require such a
 thing, and leaving it out still produces a valid firmware (and one that is a
 bit smaller, to boot).
+.HP
+\fB\-s\fR signature, \fB\-\-defaults\fR=\fIsignature\fR
+.IP
+For reasons that will probably remain unknown until the ends of time, there
+are (at least) two different firmware signatures running around that are
+otherwise identical in their internal structure, which are used for
+different devices.  This option exists to allow you to specify the signature
+that you want to use in your firmware build.  Valid values for this option
+are currently
+.I
+FrodoII
+.R
+(the default if this option is not specified) and
+.I
+Chopper
+.R
+which is used in some devices.  See the table at the top of the script if
+you don't know which value to use for your device.
 .HP
 \fB\--p product_id\fR, \fB\-\-product-id\fR=\fIproduct_id\fR
 .HP
