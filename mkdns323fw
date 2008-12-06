@@ -31,6 +31,7 @@
 #                 prod   custom   model    fwtype
 # DNS-323 rev B1:    7        1       1   FrodoII
 # CH3SNAS:           7        2       1   FrodoII
+# DNS-343:           9        1       1   Gandolf
 # DNS-321:          10        1       1   Chopper
 #
 
@@ -94,7 +95,7 @@ def validate_command_line(opts)
 	end
 	
 	if opts[:signature]
-		if opts[:signature] != "FrodoII" and opts[:signature] != "Chopper"
+		unless %w{FrodoII Chopper Gandolf}.include? opts[:signature]
 			$stderr.puts "Unknown signature type #{opts[:signature]}"
 			exit 1
 		end
@@ -127,7 +128,7 @@ def parse_cmdline
 	opts.on('-p PROD_ID', '--product-id PROD_ID', "The product ID to embed in the firmware image", Integer) { |optargs[:prod_id]| }
 	opts.on('-c CUSTOM_ID', '--custom-id CUSTOM_ID', "The custom ID to embed in the firmware image", Integer) { |optargs[:custom_id]| }
 	opts.on('-m MODEL_ID', '--model-id MODEL_ID', "The model ID to embed in the firmware image", Integer) { |optargs[:model_id]| }
-	opts.on('-s SIGNATURE', '--signature SIGNATURE', "The firmware signature type (either FrodoII or Chopper)", String) { |optargs[:signature]| }
+	opts.on('-s SIGNATURE', '--signature SIGNATURE', "The firmware signature type (either FrodoII, Chopper or Gandolf)", String) { |optargs[:signature]| }
 
 	opts.parse(ARGV)
 

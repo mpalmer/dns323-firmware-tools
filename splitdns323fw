@@ -57,6 +57,8 @@ def main
 		puts "FrodoII firmware signature found"
 	elsif header[:signature] == "\x55\xAAChopper\x00\x55\xAA"
 		puts "Chopper firmware signature found"
+	elsif header[:signature] == "\x55\xAAGandolf\x00\x55\xAA"
+		puts "Gandolf firmware signature found"
 	else
 		puts "ERROR: Unknown firmware signature (I got #{header[:signature].inspect}; perhaps it's new?)"
 		exit 1

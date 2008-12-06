@@ -6,6 +6,8 @@ Add -s option to mkdns323fw, to specify the type of firmware to build.
 New tool, splitdns323fw, to parse a firmware image, verify checksums, print
 IDs, and write out the various parts of the firmware image.
 
+Support DNS-321 ("Chopper") and DNS-343 ("Gandolf") firmware images.
+
 
 0.2
 ---
