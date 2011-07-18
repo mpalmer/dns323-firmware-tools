@@ -1,5 +1,4 @@
-dns323-firmware-tools
-=====================
+# dns323-firmware-tools
 
 This package contains programs for manipulating the firmware images used by
 the D-Link DNS-323 and similar devices (firmwares sometimes referred to as
@@ -11,13 +10,8 @@ If you are already running a custom firmware, it is likely that these tools
 will be of no use to you, and you will need to use whatever update mechanism
 is provided by your firmware.
 
-At present, the only tool available is mkdns323fw, which creates a firmware
-image from a kernel and initrd.  Tools to extract the kernel and initrd from
-an existing firmware file are planned; in the meantime, the scripts at
-http://hg.leschinsky.in.ua/makeFirmware/ may well suit your needs.
 
-Requirements
-------------
+## Requirements
 
-The only requirements to run the mkdns323fw tool is an installation of Ruby
-1.8, and the input files (kernel/initrd) to make into a firmware.
+The only requirements to run these tools is an installation of Ruby 1.8, and
+the input files (kernel/initrd) to make into a firmware.
