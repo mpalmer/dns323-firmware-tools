@@ -121,14 +121,14 @@ def parse_cmdline
 	optargs = {}
 
 	opts.on('-h', '--help', "Print this help") { optargs[:help] = true }
-	opts.on('-k KERNEL', '--kernel KERNEL', "Specify the kernel to include in the firmware image", String) { |optargs[:kernel]| }
-	opts.on('-i INITRD', '--initrd INITRD', "Specify the initrd to include in the firmware image", String) { |optargs[:initrd]| }
-	opts.on('-d DEFAULTS', '--defaults DEFAULTS', "Specify the defaults.tar.gz to include in the firmware image (optional)", String) { |optargs[:defaults]| }
-	opts.on('-o OUTPUT', '--output OUTPUT', "Specify where to put the resulting firmware image", String) { |optargs[:output]| }
-	opts.on('-p PROD_ID', '--product-id PROD_ID', "The product ID to embed in the firmware image", Integer) { |optargs[:prod_id]| }
-	opts.on('-c CUSTOM_ID', '--custom-id CUSTOM_ID', "The custom ID to embed in the firmware image", Integer) { |optargs[:custom_id]| }
-	opts.on('-m MODEL_ID', '--model-id MODEL_ID', "The model ID to embed in the firmware image", Integer) { |optargs[:model_id]| }
-	opts.on('-s SIGNATURE', '--signature SIGNATURE', "The firmware signature type (either FrodoII, Chopper or Gandolf)", String) { |optargs[:signature]| }
+	opts.on('-k KERNEL', '--kernel KERNEL', "Specify the kernel to include in the firmware image", String) { |k| optargs[:kernel] = k }
+	opts.on('-i INITRD', '--initrd INITRD', "Specify the initrd to include in the firmware image", String) { |i| optargs[:initrd] = i }
+	opts.on('-d DEFAULTS', '--defaults DEFAULTS', "Specify the defaults.tar.gz to include in the firmware image (optional)", String) { |d| optargs[:defaults] = d }
+	opts.on('-o OUTPUT', '--output OUTPUT', "Specify where to put the resulting firmware image", String) { |o| optargs[:output] = o }
+	opts.on('-p PROD_ID', '--product-id PROD_ID', "The product ID to embed in the firmware image", Integer) { |p| optargs[:prod_id] = p }
+	opts.on('-c CUSTOM_ID', '--custom-id CUSTOM_ID', "The custom ID to embed in the firmware image", Integer) { |c| optargs[:custom_id] = c }
+	opts.on('-m MODEL_ID', '--model-id MODEL_ID', "The model ID to embed in the firmware image", Integer) { |m| optargs[:model_id] = m }
+	opts.on('-s SIGNATURE', '--signature SIGNATURE', "The firmware signature type (either FrodoII, Chopper or Gandolf)", String) { |s| optargs[:signature] = s }
 
 	opts.parse(ARGV)
 

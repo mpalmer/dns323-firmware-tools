@@ -137,9 +137,9 @@ def parse_cmdline
 	optargs = {}
 
 	opts.on('-h', '--help', "Print this help") { optargs[:help] = true }
-	opts.on('-k KERNEL', '--kernel KERNEL', "Write out the kernel to the specified file", String) { |optargs[:kernel]| }
-	opts.on('-i INITRD', '--initrd INITRD', "Write out the initrd to the specified file", String) { |optargs[:initrd]| }
-	opts.on('-d DEFAULTS', '--defaults DEFAULTS', "Write out the defaults.tar.gz to the specified file", String) { |optargs[:defaults]| }
+	opts.on('-k KERNEL', '--kernel KERNEL', "Write out the kernel to the specified file", String) { |k| optargs[:kernel] = k }
+	opts.on('-i INITRD', '--initrd INITRD', "Write out the initrd to the specified file", String) { |i| optargs[:initrd] = i }
+	opts.on('-d DEFAULTS', '--defaults DEFAULTS', "Write out the defaults.tar.gz to the specified file", String) { |d| optargs[:defaults] = d }
 
 	image = opts.parse(ARGV)
 
