@@ -114,13 +114,6 @@ def is_uboot(file)
 	File.read(file, 4) == "\x27\x05\x19\x56"
 end
 
-def checksum(s)
-	sum = 0
-	
-
-	sum
-end
-
 def verify_sum(s, expected_sum, desc)
 	actual_sum = 0
 	s.unpack("V*").each { |v| actual_sum ^= v }
