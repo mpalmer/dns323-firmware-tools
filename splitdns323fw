@@ -130,9 +130,7 @@ def main
 		next unless opts[part_name]
 		File.open(opts[part_name], 'w') { |fd| fd.write(content) }
 		puts "#{part_name} written to #{opts[part_name]}"
-		if [:kernel,:initrd].include?(part_name) and !is_uboot(opts[part_name])
-			puts "WARNING: #{part_name} does not appear to be a uBoot file"
-		end
+		verify_file(opts[part_name], part_name)
 	end
 end
 
@@ -143,8 +141,27 @@ def validate_command_line(opts)
 	end
 end
 
-def is_uboot(file)
-	File.read(file, 4) == "\x27\x05\x19\x56"
+def verify_file(file, file_type)
+	case file_type
+	when :kernel,:initrd
+		unless File.read(file, 4) == "\x27\x05\x19\x56"
+			puts "WARNING: #{file} does not appear to be a u-boot image file"
+			return 0
+		end
+	when :defaults
+		unless File.read(file, 2) == "\x1f\x8b"
+			puts "WARNING: #{file} does not appear to be gzipped"
+			return 0
+		end
+	when :squashfs
+		unless ['hsqs', 'shsq'].include?(File.read(file, 4, 0x800))
+			puts "WARNING: #{file} does not appear to be a squashfs filesystem"
+			return 0
+		end
+	else
+		puts "WARNING: Cannot verify #{file} (type #{file_type})"
+	end
+	return 1
 end
 
 def verify_sum(s, expected_sum, desc)
