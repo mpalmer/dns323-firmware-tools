@@ -42,35 +42,39 @@ def main
 
 	validate_command_line(opts)
 	
-	k_size = File.stat(opts[:kernel]).size
-	i_size = File.stat(opts[:initrd]).size
-	d_size = opts[:defaults].nil? ? 0 : File.stat(opts[:defaults]).size
+	ctl_header = ''
+	part_names = [:kernel, :initrd, :defaults]
+	header_size = 64
 	
-	ctl_header = [
-		64,
-		k_size,
-		64 + k_size,
-		i_size,
-		64 + k_size + i_size,
-		d_size,
-		checksum(opts[:kernel]),
-		checksum(opts[:initrd]),
-		d_size == 0 ? 0 : checksum(opts[:defaults]),
-		"\x55\xAA#{opts[:signature]}\x00\x55\xAA",
+	offset = header_size
+	part_names.each do |part|
+		size = opts[part].nil? ? 0 : File.stat(opts[part]).size
+		ctl_header += [offset, size].pack("V2")
+		offset += size
+	end
+	
+	part_names.each do |part|
+		checksum = opts[part].nil? ? 0 : checksum(opts[part])
+		ctl_header += [checksum].pack("V")
+	end
+	
+	ctl_header += [
+		"\x55\xAA",
+		opts[:signature],
+		"\x55\xAA",
 		opts[:prod_id],
 		opts[:custom_id],
 		opts[:model_id],
 		1,
 		3,
-		"\x00" * 7,
-		0
-	].pack("V9a12c5a7V")
-
+	].pack("a2a8a2c5")
+	
 	File.open(opts[:output], 'w') do |fd|
 		fd.write ctl_header
-		fd.write File.read(opts[:kernel])
-		fd.write File.read(opts[:initrd])
-		fd.write File.read(opts[:defaults]) unless d_size == 0
+		fd.write "\x00" * (header_size - ctl_header.length)
+		part_names.each do |part|
+			fd.write File.read(opts[part]) unless opts[part].nil?
+		end
 	end
 	
 	puts "Firmware generation completed successfully."
