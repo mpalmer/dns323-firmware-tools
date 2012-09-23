@@ -77,21 +77,9 @@ def main
 end
 
 def validate_command_line(opts)
-	%w{kernel initrd}.each do |k|
-		if !File.exist?(opts[k.to_sym])
-			$stderr.puts "#{k} file (#{opts[k.to_sym]}) doesn't exist!"
-			exit 1
-		end
-	
-		if !is_uboot(opts[k.to_sym])
-			$stderr.puts "#{k} file #{opts[k.to_sym]} is not a uboot file"
-			exit 1
-		end
-	end
-	
-	if opts[:defaults] and !File.exist?(opts[:defaults])
-		$stderr.puts "default file (#{opts[:defaults]}) doesn't exist!"
-		exit 1
+	%w{kernel initrd defaults}.each do |k|
+		next unless opts[k.to_sym]
+		exit 1 unless verify_file(opts[k.to_sym], k.to_sym)
 	end
 	
 	if opts[:signature]
@@ -104,8 +92,32 @@ def validate_command_line(opts)
 	end
 end
 
-def is_uboot(file)
-	File.read(file, 4) == "\x27\x05\x19\x56"
+def verify_file(file, file_type)
+	if !File.exist?(file)
+		puts "File #{file} does not exist!"
+		return false
+	end
+
+	case file_type
+	when :kernel,:initrd
+		unless File.read(file, 4) == "\x27\x05\x19\x56"
+			puts "WARNING: #{file} does not appear to be a u-boot image file"
+			return false
+		end
+	when :defaults
+		unless File.read(file, 2) == "\x1f\x8b"
+			puts "WARNING: #{file} does not appear to be gzipped"
+			return false
+		end
+	when :squashfs
+		unless ['hsqs', 'shsq'].include?(File.read(file, 4, 0x800))
+			puts "WARNING: #{file} does not appear to be a squashfs filesystem"
+			return false
+		end
+	else
+		puts "WARNING: Cannot verify #{file} (type #{file_type})"
+	end
+	return true
 end
 
 def checksum(file)
