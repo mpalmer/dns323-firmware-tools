@@ -142,26 +142,31 @@ def validate_command_line(opts)
 end
 
 def verify_file(file, file_type)
+	if !File.exist?(file)
+		puts "File #{file} does not exist!"
+		return false
+	end
+
 	case file_type
 	when :kernel,:initrd
 		unless File.read(file, 4) == "\x27\x05\x19\x56"
 			puts "WARNING: #{file} does not appear to be a u-boot image file"
-			return 0
+			return false
 		end
 	when :defaults
 		unless File.read(file, 2) == "\x1f\x8b"
 			puts "WARNING: #{file} does not appear to be gzipped"
-			return 0
+			return false
 		end
 	when :squashfs
 		unless ['hsqs', 'shsq'].include?(File.read(file, 4, 0x800))
 			puts "WARNING: #{file} does not appear to be a squashfs filesystem"
-			return 0
+			return false
 		end
 	else
 		puts "WARNING: Cannot verify #{file} (type #{file_type})"
 	end
-	return 1
+	return true
 end
 
 def verify_sum(s, expected_sum, desc)
