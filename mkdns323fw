@@ -21,19 +21,12 @@
 #
 # Script based on information provided by Leschinsky Oleg.
 #
-# To construct a firmware image, you need six things: a uBoot-packaged
-# kernel, a uBoot-packaged initrd, the product/custom/model IDs for the
-# particular device you want to target, and the firmware signature type.
-# Using the wrong values can result in the device rejecting the firmware.
-#
-# Known values for these the IDs and firmware signature type are:
-#
-#                 prod   custom   model    fwtype
-# DNS-323 rev B1:    7        1       1   FrodoII
-# CH3SNAS:           7        2       1   FrodoII
-# DNS-343:           9        1       1   Gandolf
-# DNS-321:          10        1       1   Chopper
-#
+# To construct a firmware image, you need:-
+#   * A u-boot packaged kernel
+#   * A u-Boot-packaged initrd
+#   * A squashfs image (if required by your NAS, see part_names in known_devices)
+#   * Either to find your device in the list of known devices,
+#     or the product/custom/model IDs for your target device.
 
 require 'optparse'
 
@@ -194,7 +187,7 @@ def parse_cmdline
 	opts.on('-d DEFAULTS', '--defaults DEFAULTS', "Specify the defaults.tar.gz to include in the firmware image (optional)", String) { |d| optargs[:defaults] = d }
 	opts.on('-q SQUASHFS', '--squashfs SQUASHFS', "Specify the image.cfs to include in the firmware image (if your device needs it)", String) { |q| optargs[:squashfs] = q }
 	opts.on('-o OUTPUT', '--output OUTPUT', "Specify where to put the resulting firmware image", String) { |o| optargs[:output] = o }
-	opts.on('-e DEVICE', '--known-device DEVICE', "The target device name, setting defaults for firmware-generation", String) { |e| optargs[:known_device] = e }
+	opts.on('-e DEVICE', '--known-device DEVICE', "The target device name, setting defaults for firmware-generation. Possible values are "+($known_devices.keys.join(', ')), String) { |e| optargs[:known_device] = e }
 	opts.on('-p PROD_ID', '--product-id PROD_ID', "The product ID to embed in the firmware image", Integer) { |p| optargs[:prod_id] = p }
 	opts.on('-c CUSTOM_ID', '--custom-id CUSTOM_ID', "The custom ID to embed in the firmware image", Integer) { |c| optargs[:custom_id] = c }
 	opts.on('-m MODEL_ID', '--model-id MODEL_ID', "The model ID to embed in the firmware image", Integer) { |m| optargs[:model_id] = m }
