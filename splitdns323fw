@@ -28,6 +28,44 @@
 
 require 'optparse'
 
+$known_devices = {
+	'DNS-323-B1' => {
+		:fw_type => 'FrodoII',
+		:prod_id => 7, :custom_id => 1, :model_id => 1,
+		:part_names => [:kernel, :initrd, :defaults],
+	},
+	'CH3SNAS' => {
+		:fw_type => 'FrodoII',
+		:prod_id => 7, :custom_id => 2, :model_id => 1,
+		:part_names => [:kernel, :initrd, :defaults],
+	},
+	'DNS-343' => {
+		:fw_type => 'Gandolf',
+		:prod_id => 9, :custom_id => 1, :model_id => 1,
+		:part_names => [:kernel, :initrd, :defaults],
+	},
+	'DNS-321' => {
+		:fw_type => 'Chopper',
+		:prod_id =>10, :custom_id => 1, :model_id => 1,
+		:part_names => [:kernel, :initrd, :defaults],
+	},
+	'DNS-320' => {
+		:fw_type => 'DNS323D1', # No, this is not a mistake.
+		:prod_id => 0, :custom_id => 8, :model_id => 7,
+		:part_names => [:kernel, :initrd, :squashfs, :defaults],
+	},
+	'DNS-320L' => {
+		:fw_type => 'DNS320L',
+		:prod_id => 0, :custom_id => 8, :model_id => 11,
+		:part_names => [:kernel, :initrd, :squashfs, :defaults],
+	},
+	'DNS-325' => {
+		:fw_type => 'DNS-325',
+		:prod_id => 0, :custom_id => 8, :model_id => 5,
+		:part_names => [:kernel, :initrd, :squashfs, :defaults],
+	},
+}
+
 def main
 	opts = parse_cmdline
 
@@ -35,71 +73,64 @@ def main
 	
 	header = {}
 	
-	header[:k_offset],
-	header[:k_size],
-	header[:i_offset],
-	header[:i_size],
-	header[:d_offset],
-	header[:d_size],
-	header[:k_sum],
-	header[:i_sum],
-	header[:d_sum],
-	header[:signature],
-	header[:prod_id],
-	header[:custom_id],
-	header[:model_id],
-	header[:unused_1],
-	header[:unused_2],
-	header[:unused_3],
-	header[:unused_4] = File.read(opts[:image], 64).unpack("V9a12c5a7V")
-	
-	if header[:signature] == "\x55\xAAFrodoII\x00\x55\xAA"
-		puts "FrodoII firmware signature found"
-	elsif header[:signature] == "\x55\xAAChopper\x00\x55\xAA"
-		puts "Chopper firmware signature found"
-	elsif header[:signature] == "\x55\xAAGandolf\x00\x55\xAA"
-		puts "Gandolf firmware signature found"
-	else
-		puts "ERROR: Unknown firmware signature (I got #{header[:signature].inspect}; perhaps it's new?)"
+	# Find signature
+	header_bin = File.read(opts[:image], 128)
+	header_start = header_bin.index(%r(\x55\xAA.{8}\x55\xAA))
+	if header_start.nil?
+		puts "Header signature not found"
 		exit 1
 	end
 
-	verify_sum(File.read(opts[:image], header[:k_size], header[:k_offset]), header[:k_sum], "Kernel")
-	puts "Kernel is #{header[:k_size]} bytes"
-	verify_sum(File.read(opts[:image], header[:i_size], header[:i_offset]), header[:i_sum], "initrd")
-	puts "initrd is #{header[:i_size]} bytes"
-	verify_sum(File.read(opts[:image], header[:d_size], header[:d_offset]), header[:d_sum], "defaults.tar.gz")
-	puts "defaults.tar.gz is #{header[:d_size]} bytes"
-	
-	puts "Product ID: #{header[:prod_id]}"
-	puts "Custom ID: #{header[:custom_id]}"
-	puts "Model ID: #{header[:model_id]}"
-	
-	if opts[:kernel]
-		File.open(opts[:kernel], 'w') do |fd|
-			fd.write(File.read(opts[:image], header[:k_size], header[:k_offset]))
-		end
-		puts "Kernel data written to #{opts[:kernel]}"
-		unless is_uboot(opts[:kernel])
-			puts "WARNING: kernel data does not appear to be a uBoot file"
-		end
+	# Parse latter half of header
+	header[:fw_type], header[:prod_id], header[:custom_id], header[:model_id],
+	header[:hardware_id], header[:sub_id] = header_bin.byteslice(header_start, 64).unpack('xxA8xxc5')
+
+	# Find out which NAS this is.
+	nas_candidates = $known_devices.keys.select { |n|
+		header[:fw_type]   == $known_devices[n][:fw_type] &&
+		header[:prod_id]   == $known_devices[n][:prod_id] &&
+		header[:custom_id] == $known_devices[n][:custom_id] &&
+		header[:model_id]  == $known_devices[n][:model_id]
+	}
+	if nas_candidates.length == 1
+	  header[:device_name] = nas_candidates[0]
+	  puts "Firmware is for a #{header[:device_name]}"
+	else
+	  puts "WARNING: Unknown NAS #{header[:fw_type]} #{header[:prod_id]} #{header[:custom_id]} #{header[:model_id]}"
 	end
-	
-	if opts[:initrd]
-		File.open(opts[:initrd], 'w') do |fd|
-			fd.write(File.read(opts[:image], header[:i_size], header[:i_offset]))
-		end
-		puts "initrd data written to #{opts[:initrd]}"
-		unless is_uboot(opts[:initrd])
-			puts "WARNING: initrd data does not appear to be a uBoot file"
-		end
+
+	# Unpack offset, size, .. and checksums into arrays
+	part_names = header[:device_name] ? $known_devices[header[:device_name]][:part_names] : []
+	offsets = header_bin.byteslice(0, (header_start / 3) * 2).unpack('V*')
+	checksums = header_bin.byteslice((header_start / 3) * 2, header_start / 3).unpack('V*')
+
+	# Munge offsets into dict
+	header[:parts] = {}
+	offsets.each_slice(2).with_index do |(offset, size), i|
+		header[:parts][part_names[i] || "unknown#{i}"] = {
+			:offset => offset,
+			:size => size,
+			:sum => checksums[i],
+		}
 	end
-	
-	if opts[:defaults]
-		File.open(opts[:defaults], 'w') do |fd|
-			fd.write(File.read(opts[:image], header[:d_size], header[:d_offset]))
+
+	puts "Parsed header: #{header.inspect}"
+
+	# Verify checksum & optionally extract each part
+	header[:parts].each do |part_name, part|
+		puts "#{part_name} is #{part[:size]} bytes"
+		content = File.read(opts[:image], part[:size], part[:offset])
+		if(content.length < part[:size])
+			puts "WARNING: offset goes beyond firmware image (probably a DNS-320 image)"
+			content += "\x00" * (part[:size] - content.length)
 		end
-		puts "defaults.tar.gz written to #{opts[:defaults]}"
+		verify_sum(content, part[:sum], part_name)
+
+		# Skip if an extract wasn't requested
+		next unless opts[part_name]
+		File.open(opts[part_name], 'w') { |fd| fd.write(content) }
+		puts "#{part_name} written to #{opts[part_name]}"
+		verify_file(opts[part_name], part_name)
 	end
 end
 
@@ -110,15 +141,32 @@ def validate_command_line(opts)
 	end
 end
 
-def is_uboot(file)
-	File.read(file, 4) == "\x27\x05\x19\x56"
-end
+def verify_file(file, file_type)
+	if !File.exist?(file)
+		puts "File #{file} does not exist!"
+		return false
+	end
 
-def checksum(s)
-	sum = 0
-	
-
-	sum
+	case file_type
+	when :kernel,:initrd
+		unless File.read(file, 4) == "\x27\x05\x19\x56"
+			puts "WARNING: #{file} does not appear to be a u-boot image file"
+			return false
+		end
+	when :defaults
+		unless File.read(file, 2) == "\x1f\x8b"
+			puts "WARNING: #{file} does not appear to be gzipped"
+			return false
+		end
+	when :squashfs
+		unless ['hsqs', 'shsq'].include?(File.read(file, 4, 0x800))
+			puts "WARNING: #{file} does not appear to be a squashfs filesystem"
+			return false
+		end
+	else
+		puts "WARNING: Cannot verify #{file} (type #{file_type})"
+	end
+	return true
 end
 
 def verify_sum(s, expected_sum, desc)
@@ -140,6 +188,7 @@ def parse_cmdline
 	opts.on('-k KERNEL', '--kernel KERNEL', "Write out the kernel to the specified file", String) { |k| optargs[:kernel] = k }
 	opts.on('-i INITRD', '--initrd INITRD', "Write out the initrd to the specified file", String) { |i| optargs[:initrd] = i }
 	opts.on('-d DEFAULTS', '--defaults DEFAULTS', "Write out the defaults.tar.gz to the specified file", String) { |d| optargs[:defaults] = d }
+	opts.on('-s SQUASHFS', '--squashfs SQUASHFS', "Write out the image.cfs to the specified file", String) { |s| optargs[:squashfs] = s }
 
 	image = opts.parse(ARGV)
 

@@ -21,91 +21,152 @@
 #
 # Script based on information provided by Leschinsky Oleg.
 #
-# To construct a firmware image, you need six things: a uBoot-packaged
-# kernel, a uBoot-packaged initrd, the product/custom/model IDs for the
-# particular device you want to target, and the firmware signature type.
-# Using the wrong values can result in the device rejecting the firmware.
-#
-# Known values for these the IDs and firmware signature type are:
-#
-#                 prod   custom   model    fwtype
-# DNS-323 rev B1:    7        1       1   FrodoII
-# CH3SNAS:           7        2       1   FrodoII
-# DNS-343:           9        1       1   Gandolf
-# DNS-321:          10        1       1   Chopper
-#
+# To construct a firmware image, you need:-
+#   * A u-boot packaged kernel
+#   * A u-Boot-packaged initrd
+#   * A squashfs image (if required by your NAS, see part_names in known_devices)
+#   * Either to find your device in the list of known devices,
+#     or the product/custom/model IDs for your target device.
 
 require 'optparse'
+
+$known_devices = {
+	'DNS-323-B1' => {
+		:signature => 'FrodoII',
+		:prod_id => 7, :custom_id => 1, :model_id => 1,
+		:hardware_id => 1, :sub_id => 3,
+		:part_names => [:kernel, :initrd, :defaults],
+		:header_size => 64,
+	},
+	'CH3SNAS' => {
+		:signature => 'FrodoII',
+		:prod_id => 7, :custom_id => 2, :model_id => 1,
+		:hardware_id => 1, :sub_id => 4,
+		:part_names => [:kernel, :initrd, :defaults],
+		:header_size => 64,
+	},
+	'DNS-321' => {
+		:signature => 'Chopper',
+		:prod_id =>10, :custom_id => 1, :model_id => 1,
+		:hardware_id => 2, :sub_id => 1,
+		:part_names => [:kernel, :initrd, :defaults],
+		:header_size => 64,
+	},
+	'DNS-320' => {
+		:signature => 'DNS323D1', # No, this is not a mistake.
+		:prod_id => 0, :custom_id => 8, :model_id => 7,
+		:hardware_id => 2, :sub_id => 0,
+		:part_names => [:kernel, :initrd, :squashfs, :defaults],
+		:header_size => 128,
+	},
+	'DNS-320L' => {
+		:signature => 'DNS320L',
+		:prod_id => 0, :custom_id => 8, :model_id => 11,
+		:hardware_id => 1, :sub_id => 0,
+		:part_names => [:kernel, :initrd, :squashfs, :defaults],
+		:header_size => 128,
+	},
+	'DNS-325' => {
+		:signature => 'DNS-325',
+		:prod_id => 0, :custom_id => 8, :model_id => 5,
+		:hardware_id => 1, :sub_id => 0,
+		:part_names => [:kernel, :initrd, :squashfs, :defaults],
+		:header_size => 128,
+	},
+	# NB: A DNS-343 Image is more complicated. There is an extra
+	# file appended to the image, the offset for which is at the
+	# end of the 64 byte header
+}
 
 def main
 	opts = parse_cmdline
 
 	validate_command_line(opts)
 	
-	k_size = File.stat(opts[:kernel]).size
-	i_size = File.stat(opts[:initrd]).size
-	d_size = opts[:defaults].nil? ? 0 : File.stat(opts[:defaults]).size
+	ctl_header = ''
+	part_names = opts[:part_names]
+	header_size = opts[:header_size]
 	
-	ctl_header = [
-		64,
-		k_size,
-		64 + k_size,
-		i_size,
-		64 + k_size + i_size,
-		d_size,
-		checksum(opts[:kernel]),
-		checksum(opts[:initrd]),
-		d_size == 0 ? 0 : checksum(opts[:defaults]),
-		"\x55\xAA#{opts[:signature]}\x00\x55\xAA",
+	offset = header_size
+	part_names.each do |part|
+		size = opts[part].nil? ? 0 : File.stat(opts[part]).size
+		ctl_header += [offset, size].pack("V2")
+		offset += size
+	end
+	
+	part_names.each do |part|
+		checksum = opts[part].nil? ? 0 : checksum(opts[part])
+		ctl_header += [checksum].pack("V")
+	end
+	
+	ctl_header += [
+		"\x55\xAA",
+		opts[:signature],
+		"\x55\xAA",
 		opts[:prod_id],
 		opts[:custom_id],
 		opts[:model_id],
-		1,
-		3,
-		"\x00" * 7,
-		0
-	].pack("V9a12c5a7V")
-
+		opts[:hardware_id],
+		opts[:sub_id],
+	].pack("a2a8a2c5")
+	
 	File.open(opts[:output], 'w') do |fd|
 		fd.write ctl_header
-		fd.write File.read(opts[:kernel])
-		fd.write File.read(opts[:initrd])
-		fd.write File.read(opts[:defaults]) unless d_size == 0
+		fd.write "\x00" * (header_size - ctl_header.length)
+		part_names.each do |part|
+			fd.write File.read(opts[part]) unless opts[part].nil?
+		end
 	end
 	
 	puts "Firmware generation completed successfully."
 end
 
 def validate_command_line(opts)
-	%w{kernel initrd}.each do |k|
-		if !File.exist?(opts[k.to_sym])
-			$stderr.puts "#{k} file (#{opts[k.to_sym]}) doesn't exist!"
-			exit 1
-		end
-	
-		if !is_uboot(opts[k.to_sym])
-			$stderr.puts "#{k} file #{opts[k.to_sym]} is not a uboot file"
+	# Fill in header options with the defaults for a known device
+	opts[:known_device] ||= 'DNS-323-B1'
+	%w{signature prod_id custom_id model_id hardware_id sub_id part_names header_size}.each do |k|
+		opts[k.to_sym] ||= $known_devices[opts[:known_device]][k.to_sym]
+	end
+
+	%w{kernel initrd output}.each do |k|
+		if opts[k.to_sym].nil?
+			$stderr.puts "Missing required argument #{k}"
 			exit 1
 		end
 	end
-	
-	if opts[:defaults] and !File.exist?(opts[:defaults])
-		$stderr.puts "default file (#{opts[:defaults]}) doesn't exist!"
-		exit 1
-	end
-	
-	if opts[:signature]
-		unless %w{FrodoII Chopper Gandolf}.include? opts[:signature]
-			$stderr.puts "Unknown signature type #{opts[:signature]}"
-			exit 1
-		end
-	else
-		opts[:signature] = "FrodoII"
+
+	%w{kernel initrd defaults squashfs}.each do |k|
+		next unless opts[k.to_sym]
+		exit 1 unless verify_file(opts[k.to_sym], k.to_sym)
 	end
 end
 
-def is_uboot(file)
-	File.read(file, 4) == "\x27\x05\x19\x56"
+def verify_file(file, file_type)
+	if !File.exist?(file)
+		puts "File #{file} does not exist!"
+		return false
+	end
+
+	case file_type
+	when :kernel,:initrd
+		unless File.read(file, 4) == "\x27\x05\x19\x56"
+			puts "WARNING: #{file} does not appear to be a u-boot image file"
+			return false
+		end
+	when :defaults
+		unless File.read(file, 2) == "\x1f\x8b"
+			puts "WARNING: #{file} does not appear to be gzipped"
+			return false
+		end
+	when :squashfs
+		unless ['hsqs', 'shsq'].include?(File.read(file, 4, 0x800))
+			puts "WARNING: #{file} does not appear to be a squashfs filesystem"
+			return false
+		end
+	else
+		puts "WARNING: Cannot verify #{file} (type #{file_type})"
+	end
+	return true
 end
 
 def checksum(file)
@@ -124,24 +185,21 @@ def parse_cmdline
 	opts.on('-k KERNEL', '--kernel KERNEL', "Specify the kernel to include in the firmware image", String) { |k| optargs[:kernel] = k }
 	opts.on('-i INITRD', '--initrd INITRD', "Specify the initrd to include in the firmware image", String) { |i| optargs[:initrd] = i }
 	opts.on('-d DEFAULTS', '--defaults DEFAULTS', "Specify the defaults.tar.gz to include in the firmware image (optional)", String) { |d| optargs[:defaults] = d }
+	opts.on('-q SQUASHFS', '--squashfs SQUASHFS', "Specify the image.cfs to include in the firmware image (if your device needs it)", String) { |q| optargs[:squashfs] = q }
 	opts.on('-o OUTPUT', '--output OUTPUT', "Specify where to put the resulting firmware image", String) { |o| optargs[:output] = o }
+	opts.on('-e DEVICE', '--known-device DEVICE', "The target device name, setting defaults for firmware-generation. Possible values are "+($known_devices.keys.join(', ')), String) { |e| optargs[:known_device] = e }
 	opts.on('-p PROD_ID', '--product-id PROD_ID', "The product ID to embed in the firmware image", Integer) { |p| optargs[:prod_id] = p }
 	opts.on('-c CUSTOM_ID', '--custom-id CUSTOM_ID', "The custom ID to embed in the firmware image", Integer) { |c| optargs[:custom_id] = c }
 	opts.on('-m MODEL_ID', '--model-id MODEL_ID', "The model ID to embed in the firmware image", Integer) { |m| optargs[:model_id] = m }
 	opts.on('-s SIGNATURE', '--signature SIGNATURE', "The firmware signature type (either FrodoII, Chopper or Gandolf)", String) { |s| optargs[:signature] = s }
+	opts.on('-w HARDWARE_ID', '--hardware-id HARDWARE_ID', "The hardware ID to embed in the firmware image", Integer) { |w| optargs[:hardware_id] = w }
+	opts.on('-u SUB_ID', '--sub-id SUB_ID', "The sub ID to embed in the firmware image", Integer) { |u| optargs[:sub_id] = u }
 
 	opts.parse(ARGV)
 
 	if optargs[:help]
 		$stderr.puts opts.to_s
 		exit 0
-	end
-
-	%w{kernel initrd output prod_id custom_id model_id}.each do |k|
-		if optargs[k.to_sym].nil?
-			$stderr.puts "Missing required argument #{k}"
-			exit 1
-		end
 	end
 
 	optargs
