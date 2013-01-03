@@ -1,0 +1,335 @@
+#!/usr/bin/ruby
+
+# Create and dismantle firmware files suitable for upload to a range of
+# D-Link (and compatible) NAS devices.
+#
+# Copyright (C) 2008,2012 Matt Palmer <mpalmer@hezmatt.org>
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
+#
+# This tool is based on information provided by Leschinsky Oleg.  Many
+# thanks go to him for deciphering (and publishing) his analysis of the file
+# formats involved.
+#
+# This file should not be called as dns323fw-tool; create links to this file
+# named 'mkdns323fw' and 'splitdns323fw'.
+
+require 'optparse'
+
+# This class handles all the grunt work for decoding and encoding firmware
+# files.
+class DnsFirmware
+	# This class can be initialized two ways:
+	#
+	# - with a single string argument, which is the filename of an existing
+	#   firmware file to be dissected; or
+	#
+	# - with a hash containing seven (symbol) keys:
+	#   * :kernel_file
+	#   * :initrd_file
+	#   * :defaults_file (optional; can be empty)
+	#   * :product_id
+	#   * :custom_id
+	#   * :model_id
+	#   * :compat_id (optional; defaults to 255)
+	#   * :signature
+	#
+	def initialize(opts)
+		if opts.is_a? String
+			@firmware_file = opts
+			parse_header
+		elsif opts.is_a? Hash
+			@kernel       = opts[:kernel_file]   or raise ArgumentError.new("No :kernel_file provided")
+			@initrd       = opts[:initrd_file]   or raise ArgumentError.new("No :initrd_file provided")
+			@defaults     = opts[:defaults_file]
+			@product_id   = opts[:product_id]    or raise ArgumentError.new("No :product_id provided")
+			@custom_id    = opts[:custom_id]     or raise ArgumentError.new("No :custom_id provided")
+			@model_id     = opts[:model_id]      or raise ArgumentError.new("No :model_id provided")
+			@compat_id    = opts[:compat_id].nil? ? 255 : opts[:compat_id]
+			@subcompat_id = opts[:subcompat_id].nil? ? 255 : opts[:subcompat_id]
+			@signature    = opts[:signature]     or raise ArgumentError.new("No :signature provided")
+		else
+			raise ArgumentError.new("Incorrect type passed to DnsFirmware#initialize.  String or Hash expected, got #{opts.class}")
+		end
+	end
+	
+	attr_reader :product_id, :custom_id, :model_id, :compat_id, :subcompat_id
+	
+	# Return the signature of this firmware file.
+	def signature
+		if @signature =~ /^\x55\xAA(.{7})\0\x55\xAA$/
+			return $1
+		else
+			raise RuntimeError.new("Unparseable signature string: #{@signature.inspect}")
+		end
+	end
+
+	def write_kernel_file(destfile)
+		write_data_file(destfile, @k_size, @k_offset)
+	end
+	
+	def write_initrd_file(destfile)
+		write_data_file(destfile, @i_size, @i_offset)
+	end
+	
+	def write_defaults_file(destfile)
+		write_data_file(destfile, @d_size, @d_offset)
+	end
+	
+	def verify_kernel_checksum
+		verify_checksum(@k_size, @k_offset, @k_sum)
+	end
+	
+	def verify_initrd_checksum
+		verify_checksum(@i_size, @i_offset, @i_sum)
+	end
+	
+	def verify_defaults_checksum
+		verify_checksum(@d_size, @d_offset, @d_sum)
+	end
+	
+	# This method works from the kernel/initrd/defaults/etc data and writes out
+	# a complete firmware file to the destfile of your choosing.
+	def write_firmware_file(destfile)
+		k_size = File.stat(@kernel).size
+		i_size = File.stat(@initrd).size
+		d_size = File.stat(@defaults).size rescue 0
+		
+		header = [
+			64,
+			k_size,
+			64 + k_size,
+			i_size,
+			64 + k_size + i_size,
+			d_size,
+			checksum(File.read(@kernel)),
+			checksum(File.read(@initrd)),
+			d_size == 0 ? 0 : checksum(File.read(@defaults)),
+			"\x55\xAA#{@signature}\0\x55\xAA",
+			@product_id,
+			@custom_id,
+			@model_id,
+			@compat_id,
+			@subcompat_id,
+			"\x00" * 7,
+			0
+		].pack("V9a12c5a7V")
+		
+		File.write(destfile, header)
+		File.write(destfile, File.read(@kernel), 64)
+		File.write(destfile, File.read(@initrd), 64+k_size)
+		File.write(destfile, File.read(@defaults), 64+k_size+i_size) unless d_size == 0
+	end
+
+	private
+	def parse_header
+		return if @header_parsed
+		
+		must_have_firmware_file
+		
+		@k_offset,
+		@k_size,
+		@i_offset,
+		@i_size,
+		@d_offset,
+		@d_size,
+		@k_sum,
+		@i_sum,
+		@d_sum,
+		@signature,
+		@product_id,
+		@custom_id,
+		@model_id,
+		@compat_id,
+		@subcompat_id,
+		unused3,
+		unused4 = File.read(@firmware_file, 64).unpack("V9a12c5a7V")
+
+		@header_parsed = true
+	end
+	
+	def must_have_firmware_file
+		if @firmware_file.nil?
+			raise RuntimeError.new("Attempted to get a firmware parameter without a firmware file.  Not cool, man.")
+		end
+	end
+
+	def write_data_file(dest, size, offset)
+		data = File.read(@firmware_file, size, offset)
+		File.write(dest, data)
+	end
+	
+	def verify_checksum(size, offset, sum)
+		data = File.read(@firmware_file, size, offset)
+		checksum(data) == sum
+	end
+
+	def checksum(s)
+		s.unpack("V*").inject(0) { |v, i| v ^= i }
+	end
+end
+
+def mkdns323fw(args)
+	opts = OptionParser.new
+	optargs = {}
+
+	opts.on('-h', '--help',
+	        "Print this help") { puts opts.to_s; exit 0 }
+	opts.on('-k KERNEL', '--kernel KERNEL',
+	        "Specify the kernel to include in the firmware image",
+	        String) { |k| optargs[:kernel_file] = k }
+	opts.on('-i INITRD', '--initrd INITRD',
+	        "Specify the initrd to include in the firmware image",
+	        String) { |i| optargs[:initrd_file] = i }
+	opts.on('-d DEFAULTS', '--defaults DEFAULTS',
+	        "Specify the defaults.tar.gz to include in the firmware image (optional)",
+	        String) { |d| optargs[:defaults_file] = d }
+	opts.on('-o OUTPUT', '--output OUTPUT',
+	        "Specify where to put the resulting firmware image",
+	        String) { |o| optargs[:output] = o }
+	opts.on('-p PROD_ID', '--product-id PROD_ID',
+	        "The product ID to embed in the firmware image",
+	        Integer) { |p| optargs[:prod_id] = p }
+	opts.on('-c CUSTOM_ID', '--custom-id CUSTOM_ID',
+	        "The custom ID to embed in the firmware image",
+	        Integer) { |c| optargs[:custom_id] = c }
+	opts.on('-m MODEL_ID', '--model-id MODEL_ID',
+	        "The model ID to embed in the firmware image",
+	        Integer) { |m| optargs[:model_id] = m }
+	opts.on('-s SIGNATURE', '--signature SIGNATURE',
+	        "The firmware signature type (either FrodoII, Chopper or Gandolf)",
+	        String) { |s| optargs[:signature] = s }
+
+	opts.parse(args)
+	
+	opts = optargs
+
+	%w{kernel_file initrd_file output prod_id custom_id model_id}.each do |k|
+		if opts[k.to_sym].nil?
+			$stderr.puts "Missing required argument #{k}"
+			exit 1
+		end
+	end
+
+	%w{kernel_file initrd_file}.each do |k|
+		if !File.exist?(opts[k.to_sym])
+			$stderr.puts "#{k} file (#{opts[k.to_sym]}) doesn't exist!"
+			exit 1
+		end
+	
+		if !is_uboot(opts[k.to_sym])
+			$stderr.puts "#{k} file #{opts[k.to_sym]} is not a uboot file"
+			exit 1
+		end
+	end
+	
+	if opts[:defaults] and !File.exist?(opts[:defaults])
+		$stderr.puts "default file (#{opts[:defaults]}) doesn't exist!"
+		exit 1
+	end
+	
+	opts[:signature] ||= "FrodoII"
+	
+	begin
+		fw = DnsFirmware.new(opts)
+		fw.write_firmware_file(opts[:output])
+	rescue StandardError => e
+		$stderr.puts "Firmware generation failed: #{e.class}: #{e.message}"
+		e.backtrace.each { |l| puts "   #{l}" }
+	else
+		puts "Firmware generation completed successfully."
+	end
+end
+
+def splitdns323fw(args)
+	opts = OptionParser.new
+	optargs = {}
+
+	opts.on('-h', '--help',
+	        "Print this help") { $stderr.puts opts.to_s; exit 0 }
+	opts.on('-k KERNEL', '--kernel KERNEL',
+	        "Write out the kernel to the specified file",
+	        String) { |k| optargs[:kernel] = k }
+	opts.on('-i INITRD', '--initrd INITRD',
+	        "Write out the initrd to the specified file",
+	        String) { |i| optargs[:initrd] = i }
+	opts.on('-d DEFAULTS', '--defaults DEFAULTS',
+	        "Write out the defaults.tar.gz to the specified file",
+	        String) { |d| optargs[:defaults] = d }
+
+	image = opts.parse(args)
+
+	if image.nil? or image.empty?
+		$stderr.puts "No firmware image provided!"
+		exit 1
+	end
+	
+	if image.length > 1
+		$stderr.puts "I can only read one firmware image!"
+		exit 1
+	end
+		
+	image = image[0]
+
+	fw = DnsFirmware.new(image)
+	
+	puts "#{fw.signature} firmware signature found"
+
+	fw.verify_kernel_checksum or $stderr.puts "Kernel data failed checksum verification"
+	puts "Kernel is #{header[:k_size]} bytes"
+	fw.verify_initrd_checksum or $stderr.puts "Initrd data failed checksum verification"
+	puts "initrd is #{header[:i_size]} bytes"
+	fw.verify_defaults_checksum or $stderr.puts "Defaults data failed checksum verification"
+	puts "defaults.tar.gz is #{header[:d_size]} bytes"
+	
+	puts "Product ID: #{fw.product_id}"
+	puts "Custom ID: #{fw.custom_id}"
+	puts "Model ID: #{fw.model_id}"
+	
+	if opts[:kernel]
+		fw.write_kernel_file(opts[:kernel])
+		puts "Kernel data written to #{opts[:kernel]}"
+		unless is_uboot(opts[:kernel])
+			puts "WARNING: kernel data does not appear to be a uBoot file"
+		end
+	end
+	
+	if opts[:initrd]
+		fw.write_initrd_file(opts[:initrd])
+		puts "initrd data written to #{opts[:initrd]}"
+		unless is_uboot(opts[:initrd])
+			puts "WARNING: initrd data does not appear to be a uBoot file"
+		end
+	end
+	
+	if opts[:defaults]
+		fw.write_defaults_file(opts[:defaults])
+		puts "defaults.tar.gz written to #{opts[:defaults]}"
+	end
+end
+
+def is_uboot(file)
+	File.read(file, 4) == "\x27\x05\x19\x56"
+end
+
+if $0 == __FILE__
+	case File.basename($0)
+		when 'mkdns323fw'   then mkdns323fw(ARGV)
+		when 'splitdns323fw' then splitdns323fw(ARGV)
+		else
+			$stderr.puts "Please call me as either 'mkdns323fw' or 'splitdns323fw'; symlinks are good"
+			exit 1
+	end
+end

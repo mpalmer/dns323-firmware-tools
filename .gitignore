@@ -1,0 +1,3 @@
+test/*.fw
+test/*.img
+test/tests.yml

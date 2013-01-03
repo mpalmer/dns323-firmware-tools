@@ -1,0 +1,130 @@
+#!/usr/bin/ruby
+
+# This "test suite" is simply a script to pull apart and reassemble
+# firmware files you supply, with the belief that if we can make bit-for-bit
+# identical copies of the original firmware as a result, then the firmware
+# tools are *probably* OK.
+#
+# To run this testsuite, you will have to obtain your own collection of
+# firmware files.  This is because (a) firmware files provided by vendors
+# are not typically redistributable, and (b) Shipping around a couple of
+# hundred MB of firmware files to test 10kB of script seems a little...
+# top-heavy.
+#
+# To run the testsuite, drop a set of firmware files into this directory,
+# then create a tests.yml file that contains entries that look like this:
+#
+# filename:
+#   product_id: 7
+#   custom_id: 1
+#   model_id: 1
+#   signature: FrodoII
+#
+# This test script will iterate through each of the listed firmware files,
+# verify that it thinks the IDs match up, then deconstruct the firmware file
+# and reconstruct it again, and then do a direct comparison of both files to
+# ensure they're identical.  If any problems are detected during this
+# process, an error report will be displayed.
+#   
+
+DIR = File.expand_path('..', __FILE__)
+
+load "#{DIR}/../dns323fw-tool"
+require 'yaml'
+require 'tmpdir'
+
+tests = YAML.load_file("#{DIR}/tests.yml")
+
+fails = []
+
+tests.each_pair do |file, opts|
+	Dir.mktmpdir do |tmpdir|
+		infw = DnsFirmware.new("#{DIR}/#{file}")
+		
+		unless infw.product_id == opts['product_id']
+			puts "#{file}: product_id doesn't match (expected: #{opts['product_id'].inspect}, got: #{infw.product_id.inspect})"
+			fails << file
+		end
+		
+		unless infw.custom_id == opts['custom_id']
+			puts "#{file}: custom_id doesn't match (expected: #{opts['custom_id'].inspect}, got: #{infw.custom_id.inspect})"
+			fails << file
+		end
+		
+		unless infw.model_id == opts['model_id']
+			puts "#{file}: model_id doesn't match (expected: #{opts['model_id'].inspect}, got: #{infw.model_id.inspect})"
+			fails << file
+		end
+		
+		unless opts['compat_id'].nil? or infw.compat_id == opts['compat_id']
+			puts "#{file}: compat_id doesn't match (expected: #{opts['compat_id'].inspect}, got: #{infw.compat_id.inspect})"
+			fails << file
+		end
+		
+		unless opts['subcompat_id'].nil? or infw.subcompat_id == opts['subcompat_id']
+			puts "#{file}: subcompat_id doesn't match (expected: #{opts['subcompat_id'].inspect}, got: #{infw.subcompat_id.inspect})"
+			fails << file
+		end
+		
+		unless infw.signature == opts['signature']
+			puts "#{file}: signature doesn't match (expected: #{opts['signature'].inspect}, got: #{infw.signature.inspect})"
+			fails << file
+		end
+		
+		begin
+			infw.write_kernel_file("#{tmpdir}/kernel")
+		rescue StandardError => e
+			puts "#{file}: Error while writing kernel: #{e.class}: #{e.message}"
+			fails << file
+		end
+
+		begin
+			infw.write_initrd_file("#{tmpdir}/initrd")
+		rescue StandardError => e
+			puts "#{file}: Error while writing initrd: #{e.class}: #{e.message}"
+			fails << file
+		end
+		
+		begin
+			infw.write_defaults_file("#{tmpdir}/defaults")
+		rescue StandardError => e
+			puts "#{file}: Error while writing defaults: #{e.class}: #{e.message}"
+			fails << file
+		end
+
+		# OK, now that is over, let's put humpty back together again
+		outfw = DnsFirmware.new(
+		      {
+		        :product_id    => opts['product_id'],
+		        :custom_id     => opts['custom_id'],
+		        :model_id      => opts['model_id'],
+		        :compat_id     => opts['compat_id'],
+		        :subcompat_id  => opts['subcompat_id'],
+		        :signature     => opts['signature'],
+		        :kernel_file   => "#{tmpdir}/kernel",
+		        :initrd_file   => "#{tmpdir}/initrd",
+		        :defaults_file => "#{tmpdir}/defaults"
+		      })
+		
+		outfw.write_firmware_file("#{tmpdir}/firmware")
+		
+		origfw = File.read("#{DIR}/#{file}")
+		newfw  = File.read("#{tmpdir}/firmware")
+
+		if origfw != newfw
+			puts "#{file}: Firmware regeneration did not produce a byte-for-byte identical result."
+			`cmp #{DIR}/#{file} #{tmpdir}/firmware` =~ /differ: byte (\d+)/
+			fail_offset = $1.to_i - 1
+			puts "#{file}: First different byte is at offset #{fail_offset}: originally #{origfw[fail_offset].inspect}, regenerated as #{newfw[fail_offset].inspect}"
+			fails << file
+		end
+	end
+end
+
+unless fails.empty?
+	puts "The following firmware files failed one or more tests:"
+	fails.uniq.each { |f| puts "   #{f}" }
+else
+	puts "All firmware tests passed successfully."
+end
+
