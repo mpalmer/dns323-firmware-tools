@@ -65,7 +65,8 @@ class DnsFirmware
 		end
 	end
 	
-	attr_reader :product_id, :custom_id, :model_id, :compat_id, :subcompat_id
+	attr_reader :product_id, :custom_id, :model_id, :compat_id, :subcompat_id,
+	            :k_size, :i_size, :d_size
 	
 	# Return the signature of this firmware file.
 	def signature
@@ -288,35 +289,35 @@ def splitdns323fw(args)
 	puts "#{fw.signature} firmware signature found"
 
 	fw.verify_kernel_checksum or $stderr.puts "Kernel data failed checksum verification"
-	puts "Kernel is #{header[:k_size]} bytes"
+	puts "Kernel is #{fw.k_size} bytes"
 	fw.verify_initrd_checksum or $stderr.puts "Initrd data failed checksum verification"
-	puts "initrd is #{header[:i_size]} bytes"
+	puts "initrd is #{fw.i_size} bytes"
 	fw.verify_defaults_checksum or $stderr.puts "Defaults data failed checksum verification"
-	puts "defaults.tar.gz is #{header[:d_size]} bytes"
+	puts "defaults.tar.gz is #{fw.d_size} bytes"
 	
 	puts "Product ID: #{fw.product_id}"
 	puts "Custom ID: #{fw.custom_id}"
 	puts "Model ID: #{fw.model_id}"
 	
-	if opts[:kernel]
-		fw.write_kernel_file(opts[:kernel])
-		puts "Kernel data written to #{opts[:kernel]}"
-		unless is_uboot(opts[:kernel])
+	if optargs[:kernel]
+		fw.write_kernel_file(optargs[:kernel])
+		puts "Kernel data written to #{optargs[:kernel]}"
+		unless is_uboot(optargs[:kernel])
 			puts "WARNING: kernel data does not appear to be a uBoot file"
 		end
 	end
 	
-	if opts[:initrd]
-		fw.write_initrd_file(opts[:initrd])
-		puts "initrd data written to #{opts[:initrd]}"
-		unless is_uboot(opts[:initrd])
+	if optargs[:initrd]
+		fw.write_initrd_file(optargs[:initrd])
+		puts "initrd data written to #{optargs[:initrd]}"
+		unless is_uboot(optargs[:initrd])
 			puts "WARNING: initrd data does not appear to be a uBoot file"
 		end
 	end
 	
-	if opts[:defaults]
-		fw.write_defaults_file(opts[:defaults])
-		puts "defaults.tar.gz written to #{opts[:defaults]}"
+	if optargs[:defaults]
+		fw.write_defaults_file(optargs[:defaults])
+		puts "defaults.tar.gz written to #{optargs[:defaults]}"
 	end
 end
 
