@@ -70,7 +70,8 @@ class DnsFirmware
 	
 	# Return the signature of this firmware file.
 	def signature
-		if @signature =~ /^\x55\xAA(.{7})\0\x55\xAA$/
+		if @signature =~ Regexp.new("^\x55\xAA(.{7})\0\x55\xAA$".force_encoding('binary'),
+		                            Regexp::FIXEDENCODING)
 			return $1
 		else
 			raise RuntimeError.new("Unparseable signature string: #{@signature.inspect}")
