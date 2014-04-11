@@ -1,4 +1,4 @@
-#!/usr/bin/ruby
+#!/usr/bin/env ruby
 
 # This "test suite" is simply a script to pull apart and reassemble
 # firmware files you supply, with the belief that if we can make bit-for-bit
