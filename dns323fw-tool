@@ -3,7 +3,7 @@
 # Create and dismantle firmware files suitable for upload to a range of
 # D-Link (and compatible) NAS devices.
 #
-# Copyright (C) 2008,2012 Matt Palmer <mpalmer@hezmatt.org>
+# Copyright (C) 2008,2012,2014 Matt Palmer <mpalmer@hezmatt.org>
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -57,15 +57,14 @@ class DnsFirmware
 			@product_id   = opts[:product_id]    or raise ArgumentError.new("No :product_id provided")
 			@custom_id    = opts[:custom_id]     or raise ArgumentError.new("No :custom_id provided")
 			@model_id     = opts[:model_id]      or raise ArgumentError.new("No :model_id provided")
-			@compat_id    = opts[:compat_id].nil? ? 255 : opts[:compat_id]
-			@subcompat_id = opts[:subcompat_id].nil? ? 255 : opts[:subcompat_id]
+			@compat_id    = opts[:compat_id]
 			@signature    = opts[:signature]     or raise ArgumentError.new("No :signature provided")
 		else
 			raise ArgumentError.new("Incorrect type passed to DnsFirmware#initialize.  String or Hash expected, got #{opts.class}")
 		end
 	end
 	
-	attr_reader :product_id, :custom_id, :model_id, :compat_id, :subcompat_id,
+	attr_reader :product_id, :custom_id, :model_id, :compat_id,
 	            :k_size, :i_size, :d_size
 	
 	# Return the signature of this firmware file.
@@ -123,8 +122,8 @@ class DnsFirmware
 			@product_id,
 			@custom_id,
 			@model_id,
-			@compat_id,
-			@subcompat_id,
+			@compat_id.nil? ? 0 : 1,
+			@compat_id.to_i,
 			"\x00" * 7,
 			0
 		].pack("V9a12c5a7V")
@@ -154,10 +153,10 @@ class DnsFirmware
 		@product_id,
 		@custom_id,
 		@model_id,
+		_1,
 		@compat_id,
-		@subcompat_id,
-		unused3,
-		unused4 = File.read(@firmware_file, 64).unpack("V9a12c5a7V")
+		_2,
+		_3 = File.read(@firmware_file, 64).unpack("V9a12c5a7V")
 
 		@header_parsed = true
 	end
@@ -243,6 +242,10 @@ def mkdns323fw(args)
 	end
 	
 	opts[:signature] ||= "FrodoII"
+
+	# We just hardwire this to be the maximum value for now, since there is
+	# no indication that it does any harm in the wild
+	opts[:compat_id] = 255
 	
 	begin
 		fw = DnsFirmware.new(opts)
@@ -299,6 +302,7 @@ def splitdns323fw(args)
 	puts "Product ID: #{fw.product_id}"
 	puts "Custom ID: #{fw.custom_id}"
 	puts "Model ID: #{fw.model_id}"
+	puts "Compat ID: #{fw.compat_id}"
 	
 	if optargs[:kernel]
 		fw.write_kernel_file(optargs[:kernel])
