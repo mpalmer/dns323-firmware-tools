@@ -36,15 +36,41 @@ class DnsFirmware
 	# - with a single string argument, which is the filename of an existing
 	#   firmware file to be dissected; or
 	#
-	# - with a hash containing seven (symbol) keys:
-	#   * :kernel_file
-	#   * :initrd_file
-	#   * :defaults_file (optional; can be empty)
-	#   * :product_id
-	#   * :custom_id
-	#   * :model_id
-	#   * :compat_id (optional; defaults to 255)
-	#   * :signature
+	# - with a hash containing the following keys:
+	#   * `:kernel_file` (required) -- A file containing a raw bzImage kernel
+	#
+	#   * `:initrd_file` (required) -- A file containing an initrd
+	#
+	#   * `:defaults_file` (optional) -- A file containing a compressed
+	#         tarball of configuration data; take a look at an existing
+	#         firmware file for your device to see what can be in there.
+	#
+	#   * `:product_id` (required) -- The "product ID" to embed in the
+	#         firmware file.  What this needs to be set to is entirely
+	#         dependent on your device and what it expects.  It *appears*
+	#         that hardware that is substantially identical will tend to
+	#         share a common product ID, even if it is badged differently.
+	#
+	#   * `:custom_id` (required) -- The "customisation ID" to embed in the
+	#         firmware file.  What this needs to be set to is entirely
+	#         dependent on your device and what it expects.  It appears that
+	#         hardware that is substantially identical, but shipped by
+	#         different vendors, will usually have a different custom ID.
+	#
+	#   * `:model_id` (required) -- The "model ID" to embed in the firmware
+	#         file.  What this needs to be set to is entirely dependent on
+	#         your device and what it expects.
+	#
+	#   * `:compat_id` (optional) -- The "compatibility version ID" to embed
+	#         in the firmware file.  As far as can be determined, some
+	#         firmware loaders will not load a firmware file which contains a
+	#         compatibility ID lower than an arbitrary figure.
+	#
+	#   * `:signature` (required) -- The signature to embed in the firmware
+	#         file.  This is some sort of magic string that lets the firmware
+	#         loader know that its reading a real firmware file, as opposed
+	#         to some random gibberish.  What you need to set this to is
+	#         determined entirely by what your device expects to see.
 	#
 	def initialize(opts)
 		if opts.is_a? String
