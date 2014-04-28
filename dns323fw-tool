@@ -77,14 +77,14 @@ class DnsFirmware
 			@firmware_file = opts
 			parse_header
 		elsif opts.is_a? Hash
-			@kernel       = opts[:kernel_file]   or raise ArgumentError.new("No :kernel_file provided")
-			@initrd       = opts[:initrd_file]   or raise ArgumentError.new("No :initrd_file provided")
-			@defaults     = opts[:defaults_file]
-			@product_id   = opts[:product_id]    or raise ArgumentError.new("No :product_id provided")
-			@custom_id    = opts[:custom_id]     or raise ArgumentError.new("No :custom_id provided")
-			@model_id     = opts[:model_id]      or raise ArgumentError.new("No :model_id provided")
-			@compat_id    = opts[:compat_id]
-			@signature    = opts[:signature]     or raise ArgumentError.new("No :signature provided")
+			@kernel_file   = opts[:kernel_file]   or raise ArgumentError.new("No :kernel_file provided")
+			@initrd_file   = opts[:initrd_file]   or raise ArgumentError.new("No :initrd_file provided")
+			@defaults_file = opts[:defaults_file]
+			@product_id    = opts[:product_id]    or raise ArgumentError.new("No :product_id provided")
+			@custom_id     = opts[:custom_id]     or raise ArgumentError.new("No :custom_id provided")
+			@model_id      = opts[:model_id]      or raise ArgumentError.new("No :model_id provided")
+			@compat_id     = opts[:compat_id]
+			@signature     = opts[:signature]     or raise ArgumentError.new("No :signature provided")
 		else
 			raise ArgumentError.new("Incorrect type passed to DnsFirmware#initialize.  String or Hash expected, got #{opts.class}")
 		end
@@ -130,9 +130,9 @@ class DnsFirmware
 	# This method works from the kernel/initrd/defaults/etc data and writes out
 	# a complete firmware file to the destfile of your choosing.
 	def write_firmware_file(destfile)
-		k_size = File.stat(@kernel).size
-		i_size = File.stat(@initrd).size
-		d_size = File.stat(@defaults).size rescue 0
+		k_size = File.stat(@kernel_file).size
+		i_size = File.stat(@initrd_file).size
+		d_size = File.stat(@defaults_file).size rescue 0
 		
 		header = [
 			64,
@@ -141,9 +141,9 @@ class DnsFirmware
 			i_size,
 			64 + k_size + i_size,
 			d_size,
-			checksum(File.read(@kernel)),
-			checksum(File.read(@initrd)),
-			d_size == 0 ? 0 : checksum(File.read(@defaults)),
+			checksum(File.read(@kernel_file)),
+			checksum(File.read(@initrd_file)),
+			d_size == 0 ? 0 : checksum(File.read(@defaults_file)),
 			"\x55\xAA#{@signature}\0\x55\xAA",
 			@product_id,
 			@custom_id,
@@ -155,9 +155,9 @@ class DnsFirmware
 		].pack("V9a12c5a7V")
 		
 		File.write(destfile, header)
-		File.write(destfile, File.read(@kernel), 64)
-		File.write(destfile, File.read(@initrd), 64+k_size)
-		File.write(destfile, File.read(@defaults), 64+k_size+i_size) unless d_size == 0
+		File.write(destfile, File.read(@kernel_file), 64)
+		File.write(destfile, File.read(@initrd_file), 64+k_size)
+		File.write(destfile, File.read(@defaults_file), 64+k_size+i_size) unless d_size == 0
 	end
 
 	private
