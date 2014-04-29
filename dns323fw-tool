@@ -28,6 +28,14 @@
 
 require 'optparse'
 
+begin
+	require 'cstruct'
+rescue LoadError
+	$stderr.puts "The 'cstruct' gem is not available."
+	$stderr.puts "Perhaps try running `gem install cstruct`"
+	exit 1
+end
+
 # This class handles all the grunt work for decoding and encoding firmware
 # files.
 class DnsFirmware
@@ -136,6 +144,33 @@ class DnsFirmware
 		end
 	end
 
+	class FrodoHeader < CStruct
+		uint32 :k_offset
+		uint32 :k_size
+		uint32 :i_offset
+		uint32 :i_size
+		uint32 :d_offset
+		uint32 :d_size
+		uint32 :k_sum
+		uint32 :i_sum
+		uint32 :d_sum
+		uint8  :sig,[12]
+		uint8  :product_id
+		uint8  :custom_id
+		uint8  :model_id
+		uint8  :compat_flag
+		uint8  :compat_id
+		uint8  :_1,[11]
+
+		def signature
+			sig.map { |c| c.chr }.join('')
+		end
+
+		def signature=(s)
+			self.sig = s  #s.split('').map { |c| c.ord }
+		end
+	end
+
 	# This class can be initialized two ways:
 	#
 	# - with a single string argument, which is the filename of an existing
@@ -178,9 +213,39 @@ class DnsFirmware
 	#         determined entirely by what your device expects to see.
 	#
 	def initialize(opts)
+		@header = FrodoHeader.new
+		@files  = {}
+
 		if opts.is_a? String
 			@firmware_file = opts
-			parse_header
+			@header.data = File.read(@firmware_file, 64)
+
+			@files[:kernel] = KernelFile.new(
+			                               :contents => File.read(
+			                                                   @firmware_file,
+			                                                   @header.k_size,
+			                                                   @header.k_offset
+			                                                 ),
+			                               :checksum => @header.k_sum
+			                             )
+			@files[:initrd] = InitrdFile.new(
+			                               :contents => File.read(
+			                                                   @firmware_file,
+			                                                   @header.i_size,
+			                                                   @header.i_offset
+			                                                 ),
+			                               :checksum => @header.i_sum
+		                             )
+			if @header.d_size > 0
+				@files[:defaults] = DefaultsFile.new(
+				                                   :contents => File.read(
+				                                                       @firmware_file,
+				                                                       @header.d_size,
+				                                                       @header.d_offset
+				                                                     ),
+				                                   :checksum => @header.d_sum
+				                                 )
+			end
 		elsif opts.is_a? Hash
 			[:kernel_file, :initrd_file].each do |f|
 				unless opts[f]
@@ -188,8 +253,6 @@ class DnsFirmware
 					      "No #{f.inspect} provided"
 				end
 			end
-
-			@files = {}
 
 			@files[:kernel] = KernelFile.new(:filename => opts[:kernel_file])
 			@files[:initrd] = InitrdFile.new(:filename => opts[:initrd_file])
@@ -207,7 +270,21 @@ class DnsFirmware
 		end
 	end
 	
-	attr_reader :product_id, :custom_id, :model_id, :compat_id
+	def product_id
+		@header.product_id
+	end
+
+	def custom_id
+		@header.custom_id
+	end
+
+	def model_id
+		@header.model_id
+	end
+
+	def compat_id
+		@header.compat_flag ? @header.compat_id : nil
+	end
 
 	def kernel
 		@files[:kernel]
@@ -223,38 +300,34 @@ class DnsFirmware
 	
 	# Return the signature of this firmware file.
 	def signature
-		if @signature =~ Regexp.new("^\x55\xAA(.{7})\0\x55\xAA$".force_encoding('binary'),
-		                            Regexp::FIXEDENCODING)
+		if @header.signature =~ Regexp.new("^\x55\xAA(.{7})\0\x55\xAA$".force_encoding('binary'),
+		                                   Regexp::FIXEDENCODING)
 			return $1
 		else
-			raise RuntimeError.new("Unparseable signature string: #{@signature.inspect}")
+			raise RuntimeError.new("Unparseable signature string: #{@header.signature.inspect}")
 		end
 	end
 
 	# This method works from the kernel/initrd/defaults/etc data and writes out
 	# a complete firmware file to the destfile of your choosing.
 	def write_firmware_file(destfile)
-		header = [
-			64,
-			@files[:kernel].size,
-			64 + @files[:kernel].size,
-			@files[:initrd].size,
-			64 + @files[:kernel].size + @files[:initrd].size,
-			@files[:defaults] ? @files[:defaults].size : 0,
-			@files[:kernel].checksum,
-			@files[:initrd].checksum,
-			@files[:defaults] ? @files[:defaults].checksum : 0,
-			"\x55\xAA#{@signature}\0\x55\xAA",
-			@product_id,
-			@custom_id,
-			@model_id,
-			@compat_id.nil? ? 0 : 1,
-			@compat_id.to_i,
-			"\x00" * 7,
-			0
-		].pack("V9a12c5a7V")
-		
-		File.write(destfile, header)
+		@header.k_offset    = 64
+		@header.k_size      = @files[:kernel].size
+		@header.i_offset    = 64 + @files[:kernel].size
+		@header.i_size      = @files[:initrd].size
+		@header.d_offset    = 64 + @files[:kernel].size + @files[:initrd].size
+		@header.d_size      = @files[:defaults] ? @files[:defaults].size : 0
+		@header.k_sum       = @files[:kernel].checksum
+		@header.i_sum       = @files[:initrd].checksum
+		@header.d_sum       = @files[:defaults] ? @files[:defaults].checksum : 0
+		@header.signature   = "\x55\xAA#{@signature}\0\x55\xAA"
+		@header.product_id  = @product_id
+		@header.custom_id   = @custom_id
+		@header.model_id    = @model_id
+		@header.compat_flag = @compat_id.nil? ? 0 : 1
+		@header.compat_id   = @compat_id.to_i
+
+		File.write(destfile, @header.data)
 		File.write(destfile, @files[:kernel].contents, :mode => 'a')
 		File.write(destfile, @files[:initrd].contents, :mode => 'a')
 		File.write(destfile, @files[:defaults].contents, :mode => 'a') if @files[:defaults]
@@ -262,69 +335,6 @@ class DnsFirmware
 
 	def validate
 		@files.values.each { |f| f.validate }
-	end
-
-	private
-	def parse_header
-		return if @header_parsed
-		
-		must_have_firmware_file
-		
-		k_offset,
-		k_size,
-		i_offset,
-		i_size,
-		d_offset,
-		d_size,
-		k_sum,
-		i_sum,
-		d_sum,
-		@signature,
-		@product_id,
-		@custom_id,
-		@model_id,
-		_1,
-		@compat_id,
-		_2,
-		_3 = File.read(@firmware_file, 64).unpack("V9a12c5a7V")
-
-		@files ||= {}
-
-		@files[:kernel] = KernelFile.new(
-		                               :contents => File.read(
-		                                                   @firmware_file,
-		                                                   k_size,
-		                                                   k_offset
-		                                                 ),
-		                               :checksum => k_sum
-		                             )
-		@files[:initrd] = InitrdFile.new(
-		                               :contents => File.read(
-		                                                   @firmware_file,
-		                                                   i_size,
-		                                                   i_offset
-		                                                 ),
-		                               :checksum => i_sum
-		                             )
-		if d_size > 0
-			@files[:defaults] = DefaultsFile.new(
-			                                   :contents => File.read(
-			                                                       @firmware_file,
-			                                                       d_size,
-			                                                       d_offset
-			                                                     ),
-			                                   :checksum => d_sum
-			                                 )
-		end
-
-		@header_parsed = true
-	end
-	
-	def must_have_firmware_file
-		if @firmware_file.nil?
-			raise RuntimeError,
-			      "Attempted to get a firmware parameter without a firmware file.  Not cool, man."
-		end
 	end
 end
 
