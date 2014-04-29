@@ -31,6 +31,111 @@ require 'optparse'
 # This class handles all the grunt work for decoding and encoding firmware
 # files.
 class DnsFirmware
+	# Represents a file which is a part of the firmware blob
+	class IncludedFile
+		# The contents of the file
+		attr_reader :contents
+
+		# This class can be instantiated in two different ways:
+		#
+		#  * By passing in `:filename => "some file name"` as the second
+		#    argument; or
+		#
+		#  * By passing in `:contents => "some file contents"` and `:checksum
+		#    => <number>` as the second argument.
+		#
+		def initialize(opts)
+			if opts[:filename] and (opts[:contents] or opts[:checksum])
+				raise ArgumentError,
+				      "Must pass either :filename or :contents and :checksum to #{self.class}.initialize"
+			end
+
+			if opts[:filename]
+				@filename = File.expand_path(opts[:filename])
+				@contents = File.read(@filename).force_encoding("BINARY")
+			elsif opts[:contents]
+				@contents = opts[:contents]
+				if opts[:checksum]
+					@checksum = opts[:checksum]
+				end
+			else
+				raise ArgumentError,
+				      "Must pass exactly one of :filename or :contents to #{self.class}.initialize"
+			end
+
+			# Calculate a checksum if one was not provided
+			@checksum ||= checksum
+		end
+
+		def validate
+			if @filename and !File.exists?(@filename)
+				log_error "does not exist"
+			end
+
+			unless @checksum == checksum(@contents)
+				$stderr.puts "Checksum of #{type} file is incorrect (expected #{@checksum}, got #{checksum(@contents)}"
+			end
+		end
+
+		def log_error(s)
+			if @filename
+				$stderr.print "#{@filename}: "
+			end
+			$stderr.puts s
+		end
+
+		def size
+			@contents.length
+		end
+
+		def checksum
+			@contents.unpack("V*").inject(0) { |v, i| v ^= i }
+		end
+
+		def write(f)
+			File.write(f, @contents)
+		end
+	end
+
+	# Any included file that should be a uBoot file
+	class UBootFile < IncludedFile
+		def validate
+			super or return false
+
+			unless @contents[0..3] == "\x27\x05\x19\x56"
+				$stderr.puts "#{type} file #{@filename} does not appear to be a uBoot image file"
+				return false
+			end
+		end
+	end
+
+	class KernelFile < UBootFile
+		def type
+			:kernel
+		end
+	end
+
+	class InitrdFile < UBootFile
+		def type
+			:initrd
+		end
+	end
+
+	class DefaultsFile < IncludedFile
+		def type
+			:defaults
+		end
+
+		def validate
+			super or return false
+
+			unless @contents[0..1] == "\x1f\x8b"
+				$stderr.puts "defaults file #{@filename} does not appear to be gzipped"
+				return false
+			end
+		end
+	end
+
 	# This class can be initialized two ways:
 	#
 	# - with a single string argument, which is the filename of an existing
@@ -77,9 +182,21 @@ class DnsFirmware
 			@firmware_file = opts
 			parse_header
 		elsif opts.is_a? Hash
-			@kernel_file   = opts[:kernel_file]   or raise ArgumentError.new("No :kernel_file provided")
-			@initrd_file   = opts[:initrd_file]   or raise ArgumentError.new("No :initrd_file provided")
-			@defaults_file = opts[:defaults_file]
+			[:kernel_file, :initrd_file].each do |f|
+				unless opts[f]
+					raise ArgumentError,
+					      "No #{f.inspect} provided"
+				end
+			end
+
+			@files = {}
+
+			@files[:kernel] = KernelFile.new(:filename => opts[:kernel_file])
+			@files[:initrd] = InitrdFile.new(:filename => opts[:initrd_file])
+			if opts[:defaults_file]
+				@files[:defaults] = DefaultsFile.new(:filename => opts[:defaults_file])
+			end
+
 			@product_id    = opts[:product_id]    or raise ArgumentError.new("No :product_id provided")
 			@custom_id     = opts[:custom_id]     or raise ArgumentError.new("No :custom_id provided")
 			@model_id      = opts[:model_id]      or raise ArgumentError.new("No :model_id provided")
@@ -90,8 +207,19 @@ class DnsFirmware
 		end
 	end
 	
-	attr_reader :product_id, :custom_id, :model_id, :compat_id,
-	            :k_size, :i_size, :d_size
+	attr_reader :product_id, :custom_id, :model_id, :compat_id
+
+	def kernel
+		@files[:kernel]
+	end
+
+	def initrd
+		@files[:initrd]
+	end
+
+	def defaults
+		@files[:defaults]
+	end
 	
 	# Return the signature of this firmware file.
 	def signature
@@ -103,47 +231,19 @@ class DnsFirmware
 		end
 	end
 
-	def write_kernel_file(destfile)
-		write_data_file(destfile, @k_size, @k_offset)
-	end
-	
-	def write_initrd_file(destfile)
-		write_data_file(destfile, @i_size, @i_offset)
-	end
-	
-	def write_defaults_file(destfile)
-		write_data_file(destfile, @d_size, @d_offset)
-	end
-	
-	def verify_kernel_checksum
-		verify_checksum(@k_size, @k_offset, @k_sum)
-	end
-	
-	def verify_initrd_checksum
-		verify_checksum(@i_size, @i_offset, @i_sum)
-	end
-	
-	def verify_defaults_checksum
-		verify_checksum(@d_size, @d_offset, @d_sum)
-	end
-	
 	# This method works from the kernel/initrd/defaults/etc data and writes out
 	# a complete firmware file to the destfile of your choosing.
 	def write_firmware_file(destfile)
-		k_size = File.stat(@kernel_file).size
-		i_size = File.stat(@initrd_file).size
-		d_size = File.stat(@defaults_file).size rescue 0
-		
 		header = [
 			64,
-			k_size,
-			64 + k_size,
-			i_size,
-			64 + k_size + i_size,
-			d_size,
-			checksum(File.read(@kernel_file)),
-			checksum(File.read(@initrd_file)),
-			d_size == 0 ? 0 : checksum(File.read(@defaults_file)),
+			@files[:kernel].size,
+			64 + @files[:kernel].size,
+			@files[:initrd].size,
+			64 + @files[:kernel].size + @files[:initrd].size,
+			@files[:defaults] ? @files[:defaults].size : 0,
+			@files[:kernel].checksum,
+			@files[:initrd].checksum,
+			@files[:defaults] ? @files[:defaults].checksum : 0,
 			"\x55\xAA#{@signature}\0\x55\xAA",
 			@product_id,
 			@custom_id,
@@ -155,9 +255,13 @@ class DnsFirmware
 		].pack("V9a12c5a7V")
 		
 		File.write(destfile, header)
-		File.write(destfile, File.read(@kernel_file), 64)
-		File.write(destfile, File.read(@initrd_file), 64+k_size)
-		File.write(destfile, File.read(@defaults_file), 64+k_size+i_size) unless d_size == 0
+		File.write(destfile, @files[:kernel].contents, :mode => 'a')
+		File.write(destfile, @files[:initrd].contents, :mode => 'a')
+		File.write(destfile, @files[:defaults].contents, :mode => 'a') if @files[:defaults]
+	end
+
+	def validate
+		@files.values.each { |f| f.validate }
 	end
 
 	private
@@ -166,15 +270,15 @@ class DnsFirmware
 		
 		must_have_firmware_file
 		
-		@k_offset,
-		@k_size,
-		@i_offset,
-		@i_size,
-		@d_offset,
-		@d_size,
-		@k_sum,
-		@i_sum,
-		@d_sum,
+		k_offset,
+		k_size,
+		i_offset,
+		i_size,
+		d_offset,
+		d_size,
+		k_sum,
+		i_sum,
+		d_sum,
 		@signature,
 		@product_id,
 		@custom_id,
@@ -184,27 +288,43 @@ class DnsFirmware
 		_2,
 		_3 = File.read(@firmware_file, 64).unpack("V9a12c5a7V")
 
+		@files ||= {}
+
+		@files[:kernel] = KernelFile.new(
+		                               :contents => File.read(
+		                                                   @firmware_file,
+		                                                   k_size,
+		                                                   k_offset
+		                                                 ),
+		                               :checksum => k_sum
+		                             )
+		@files[:initrd] = InitrdFile.new(
+		                               :contents => File.read(
+		                                                   @firmware_file,
+		                                                   i_size,
+		                                                   i_offset
+		                                                 ),
+		                               :checksum => i_sum
+		                             )
+		if d_size > 0
+			@files[:defaults] = DefaultsFile.new(
+			                                   :contents => File.read(
+			                                                       @firmware_file,
+			                                                       d_size,
+			                                                       d_offset
+			                                                     ),
+			                                   :checksum => d_sum
+			                                 )
+		end
+
 		@header_parsed = true
 	end
 	
 	def must_have_firmware_file
 		if @firmware_file.nil?
-			raise RuntimeError.new("Attempted to get a firmware parameter without a firmware file.  Not cool, man.")
+			raise RuntimeError,
+			      "Attempted to get a firmware parameter without a firmware file.  Not cool, man."
 		end
-	end
-
-	def write_data_file(dest, size, offset)
-		data = File.read(@firmware_file, size, offset)
-		File.write(dest, data)
-	end
-	
-	def verify_checksum(size, offset, sum)
-		data = File.read(@firmware_file, size, offset)
-		checksum(data) == sum
-	end
-
-	def checksum(s)
-		s.unpack("V*").inject(0) { |v, i| v ^= i }
 	end
 end
 
@@ -250,23 +370,6 @@ def mkdns323fw(args)
 		end
 	end
 
-	%w{kernel_file initrd_file}.each do |k|
-		if !File.exist?(opts[k.to_sym])
-			$stderr.puts "#{k} file (#{opts[k.to_sym]}) doesn't exist!"
-			exit 1
-		end
-	
-		if !is_uboot(opts[k.to_sym])
-			$stderr.puts "#{k} file #{opts[k.to_sym]} is not a uboot file"
-			exit 1
-		end
-	end
-	
-	if opts[:defaults] and !File.exist?(opts[:defaults])
-		$stderr.puts "default file (#{opts[:defaults]}) doesn't exist!"
-		exit 1
-	end
-	
 	opts[:signature] ||= "FrodoII"
 
 	# We just hardwire this to be the maximum value for now, since there is
@@ -275,7 +378,7 @@ def mkdns323fw(args)
 	
 	begin
 		fw = DnsFirmware.new(opts)
-		fw.write_firmware_file(opts[:output])
+		fw.validate and fw.write_firmware_file(opts[:output])
 	rescue StandardError => e
 		$stderr.puts "Firmware generation failed: #{e.class}: #{e.message}"
 		e.backtrace.each { |l| puts "   #{l}" }
@@ -318,12 +421,16 @@ def splitdns323fw(args)
 	
 	puts "#{fw.signature} firmware signature found"
 
-	fw.verify_kernel_checksum or $stderr.puts "Kernel data failed checksum verification"
-	puts "Kernel is #{fw.k_size} bytes"
-	fw.verify_initrd_checksum or $stderr.puts "Initrd data failed checksum verification"
-	puts "initrd is #{fw.i_size} bytes"
-	fw.verify_defaults_checksum or $stderr.puts "Defaults data failed checksum verification"
-	puts "defaults.tar.gz is #{fw.d_size} bytes"
+	fw.kernel.validate or $stderr.puts "Kernel data failed checksum verification"
+	puts "Kernel is #{fw.kernel.size} bytes"
+	fw.initrd.validate or $stderr.puts "Initrd data failed checksum verification"
+	puts "initrd is #{fw.initrd.size} bytes"
+	if fw.defaults
+		fw.defaults.validate or $stderr.puts "Defaults data failed checksum verification"
+		puts "defaults.tar.gz is #{fw.defaults.size} bytes"
+	else
+		puts "No defaults.tar.gz in this firmware file"
+	end
 	
 	puts "Product ID: #{fw.product_id}"
 	puts "Custom ID: #{fw.custom_id}"
@@ -331,29 +438,23 @@ def splitdns323fw(args)
 	puts "Compat ID: #{fw.compat_id}"
 	
 	if optargs[:kernel]
-		fw.write_kernel_file(optargs[:kernel])
+		fw.kernel.write(optargs[:kernel])
 		puts "Kernel data written to #{optargs[:kernel]}"
-		unless is_uboot(optargs[:kernel])
-			puts "WARNING: kernel data does not appear to be a uBoot file"
-		end
 	end
 	
 	if optargs[:initrd]
-		fw.write_initrd_file(optargs[:initrd])
+		fw.initrd.write(optargs[:initrd])
 		puts "initrd data written to #{optargs[:initrd]}"
-		unless is_uboot(optargs[:initrd])
-			puts "WARNING: initrd data does not appear to be a uBoot file"
-		end
 	end
 	
 	if optargs[:defaults]
-		fw.write_defaults_file(optargs[:defaults])
-		puts "defaults.tar.gz written to #{optargs[:defaults]}"
+		if fw.defaults
+			fw.defaults.write(optargs[:defaults])
+			puts "defaults.tar.gz written to #{optargs[:defaults]}"
+		else
+			$stderr.puts "This firmware file does not have a defaults.tar.gz; not written"
+		end
 	end
-end
-
-def is_uboot(file)
-	File.read(file, 4) == "\x27\x05\x19\x56"
 end
 
 if $0 == __FILE__

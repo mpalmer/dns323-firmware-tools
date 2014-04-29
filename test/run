@@ -72,24 +72,26 @@ tests.each_pair do |file, opts|
 		end
 		
 		begin
-			infw.write_kernel_file("#{tmpdir}/kernel")
+			infw.kernel.write("#{tmpdir}/kernel")
 		rescue StandardError => e
 			puts "#{file}: Error while writing kernel: #{e.class}: #{e.message}"
 			fails << file
 		end
 
 		begin
-			infw.write_initrd_file("#{tmpdir}/initrd")
+			infw.initrd.write("#{tmpdir}/initrd")
 		rescue StandardError => e
 			puts "#{file}: Error while writing initrd: #{e.class}: #{e.message}"
 			fails << file
 		end
 		
-		begin
-			infw.write_defaults_file("#{tmpdir}/defaults")
-		rescue StandardError => e
-			puts "#{file}: Error while writing defaults: #{e.class}: #{e.message}"
-			fails << file
+		if infw.defaults
+			begin
+				infw.defaults.write("#{tmpdir}/defaults")
+			rescue StandardError => e
+				puts "#{file}: Error while writing defaults: #{e.class}: #{e.message}"
+				fails << file
+			end
 		end
 
 		# OK, now that is over, let's put humpty back together again
@@ -103,13 +105,13 @@ tests.each_pair do |file, opts|
 		        :signature     => opts['signature'],
 		        :kernel_file   => "#{tmpdir}/kernel",
 		        :initrd_file   => "#{tmpdir}/initrd",
-		        :defaults_file => "#{tmpdir}/defaults"
+		        :defaults_file => File.exists?("#{tmpdir}/defaults") ? "#{tmpdir}/defaults" : nil
 		      })
 		
 		outfw.write_firmware_file("#{tmpdir}/firmware")
 		
-		origfw = File.read("#{DIR}/#{file}")
-		newfw  = File.read("#{tmpdir}/firmware")
+		origfw = File.read("#{DIR}/#{file}").force_encoding("BINARY")
+		newfw  = File.read("#{tmpdir}/firmware").force_encoding("BINARY")
 
 		if origfw != newfw
 			puts "#{file}: Firmware regeneration did not produce a byte-for-byte identical result."
