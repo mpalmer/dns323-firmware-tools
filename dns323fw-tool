@@ -218,7 +218,7 @@ class DnsFirmware
 
 		if opts.is_a? String
 			@firmware_file = opts
-			@header.data = File.read(@firmware_file, 64)
+			@header.data = File.read(@firmware_file, @header.class.size)
 
 			@files[:kernel] = KernelFile.new(
 			                               :contents => File.read(
@@ -311,11 +311,11 @@ class DnsFirmware
 	# This method works from the kernel/initrd/defaults/etc data and writes out
 	# a complete firmware file to the destfile of your choosing.
 	def write_firmware_file(destfile)
-		@header.k_offset    = 64
+		@header.k_offset    = @header.class.size
 		@header.k_size      = @files[:kernel].size
-		@header.i_offset    = 64 + @files[:kernel].size
+		@header.i_offset    = @header.class.size + @files[:kernel].size
 		@header.i_size      = @files[:initrd].size
-		@header.d_offset    = 64 + @files[:kernel].size + @files[:initrd].size
+		@header.d_offset    = @header.class.size + @files[:kernel].size + @files[:initrd].size
 		@header.d_size      = @files[:defaults] ? @files[:defaults].size : 0
 		@header.k_sum       = @files[:kernel].checksum
 		@header.i_sum       = @files[:initrd].checksum
