@@ -282,7 +282,7 @@ class DnsFirmware
 			raise ArgumentError.new("Incorrect type passed to DnsFirmware#initialize.  String or Hash expected, got #{opts.class}")
 		end
 	end
-	
+
 	def product_id
 		@header.product_id
 	end
@@ -310,7 +310,7 @@ class DnsFirmware
 	def defaults
 		@files[:defaults]
 	end
-	
+
 	# Return the signature of this firmware file.
 	def signature
 		if @header.signature =~ Regexp.new("^\x55\xAA(.{7})\0\x55\xAA$".force_encoding('binary'),
@@ -383,7 +383,7 @@ def mkdns323fw(args)
 	        String) { |s| optargs[:signature] = s }
 
 	opts.parse(args)
-	
+
 	opts = optargs
 
 	%w{kernel_file initrd_file output prod_id custom_id model_id}.each do |k|
@@ -398,7 +398,7 @@ def mkdns323fw(args)
 	# We just hardwire this to be the maximum value for now, since there is
 	# no indication that it does any harm in the wild
 	opts[:compat_id] = 255
-	
+
 	begin
 		fw = DnsFirmware.new(opts)
 		fw.validate and fw.write_firmware_file(opts[:output])
@@ -432,16 +432,16 @@ def splitdns323fw(args)
 		$stderr.puts "No firmware image provided!"
 		exit 1
 	end
-	
+
 	if image.length > 1
 		$stderr.puts "I can only read one firmware image!"
 		exit 1
 	end
-		
+
 	image = image[0]
 
 	fw = DnsFirmware.new(image)
-	
+
 	puts "#{fw.signature} firmware signature found"
 
 	fw.kernel.validate or $stderr.puts "Kernel data failed checksum verification"
@@ -454,22 +454,22 @@ def splitdns323fw(args)
 	else
 		puts "No defaults.tar.gz in this firmware file"
 	end
-	
+
 	puts "Product ID: #{fw.product_id}"
 	puts "Custom ID: #{fw.custom_id}"
 	puts "Model ID: #{fw.model_id}"
 	puts "Compat ID: #{fw.compat_id}"
-	
+
 	if optargs[:kernel]
 		fw.kernel.write(optargs[:kernel])
 		puts "Kernel data written to #{optargs[:kernel]}"
 	end
-	
+
 	if optargs[:initrd]
 		fw.initrd.write(optargs[:initrd])
 		puts "initrd data written to #{optargs[:initrd]}"
 	end
-	
+
 	if optargs[:defaults]
 		if fw.defaults
 			fw.defaults.write(optargs[:defaults])
