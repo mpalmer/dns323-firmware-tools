@@ -169,6 +169,14 @@ class DnsFirmware
 		def signature=(s)
 			self.sig = s  #s.split('').map { |c| c.ord }
 		end
+
+		def valid?
+			signature[0]  == "\x55" and
+			signature[1]  == "\xAA" and
+			signature[9]  == "\0"   and
+			signature[10] == "\x55" and
+			signature[11] == "\xAA"
+		end
 	end
 
 	# This class can be initialized two ways:
@@ -219,6 +227,11 @@ class DnsFirmware
 		if opts.is_a? String
 			@firmware_file = opts
 			@header.data = File.read(@firmware_file, @header.class.size)
+
+			unless @header.valid?
+				$stderr.puts "Invalid header found in firmware file #{@firmware_file}"
+				exit 1
+			end
 
 			@files[:kernel] = KernelFile.new(
 			                               :contents => File.read(
