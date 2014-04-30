@@ -94,6 +94,15 @@ tests.each_pair do |file, opts|
 			end
 		end
 
+		if infw.squashfs
+			begin
+				infw.squashfs.write("#{tmpdir}/squashfs")
+			rescue StandardError => e
+				puts "#{file}: Error while writing squashfs: #{e.class}: #{e.message}"
+				fails << file
+			end
+		end
+
 		# OK, now that is over, let's put humpty back together again
 		outfw = DnsFirmware.new(
 		      {
@@ -105,7 +114,8 @@ tests.each_pair do |file, opts|
 		        :signature     => opts['signature'],
 		        :kernel_file   => "#{tmpdir}/kernel",
 		        :initrd_file   => "#{tmpdir}/initrd",
-		        :defaults_file => File.exists?("#{tmpdir}/defaults") ? "#{tmpdir}/defaults" : nil
+		        :defaults_file => File.exists?("#{tmpdir}/defaults") ? "#{tmpdir}/defaults" : nil,
+		        :squashfs_file => File.exists?("#{tmpdir}/squashfs") ? "#{tmpdir}/squashfs" : nil
 		      })
 		
 		outfw.write_firmware_file("#{tmpdir}/firmware")

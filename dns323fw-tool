@@ -44,6 +44,9 @@ class DnsFirmware
 		# The contents of the file
 		attr_reader :contents
 
+		# The stored / calculated checksum
+		attr_reader :checksum
+
 		# This class can be instantiated in two different ways:
 		#
 		#  * By passing in `:filename => "some file name"` as the second
@@ -72,7 +75,7 @@ class DnsFirmware
 			end
 
 			# Calculate a checksum if one was not provided
-			@checksum ||= checksum
+			@checksum ||= calculate_checksum
 		end
 
 		def validate
@@ -80,9 +83,11 @@ class DnsFirmware
 				log_error "does not exist"
 			end
 
-			unless @checksum == checksum(@contents)
+			unless @checksum == self.calculate_checksum
 				$stderr.puts "Checksum of #{type} file is incorrect (expected #{@checksum}, got #{checksum(@contents)}"
 			end
+
+			true
 		end
 
 		def log_error(s)
@@ -96,7 +101,7 @@ class DnsFirmware
 			@contents.length
 		end
 
-		def checksum
+		def calculate_checksum
 			@contents.unpack("V*").inject(0) { |v, i| v ^= i }
 		end
 
@@ -114,6 +119,8 @@ class DnsFirmware
 				$stderr.puts "#{type} file #{@filename} does not appear to be a uBoot image file"
 				return false
 			end
+
+			true
 		end
 	end
 
@@ -138,23 +145,45 @@ class DnsFirmware
 			super or return false
 
 			unless @contents[0..1] == "\x1f\x8b"
-				$stderr.puts "defaults file #{@filename} does not appear to be gzipped"
+				$stderr.puts "defaults file does not appear to be gzipped"
 				return false
 			end
+
+			true
+		end
+	end
+
+	class SquashfsFile < IncludedFile
+		def type
+			:squashfs
+		end
+
+		def validate
+			super or return false
+
+			unless @contents[0x800..0x803] == "hsqs" or
+			       @contents[0x800..0x803] == "shsq"
+				$stderr.puts "filesystem image file does not appear to be a squashfs filesystem"
+				return false
+			end
+
+			true
 		end
 	end
 
 	class FrodoHeader < CStruct
-		uint32 :k_offset
-		uint32 :k_size
-		uint32 :i_offset
-		uint32 :i_size
-		uint32 :d_offset
-		uint32 :d_size
-		uint32 :k_sum
-		uint32 :i_sum
-		uint32 :d_sum
-		uint8  :sig,[12]
+		uint32 :kernel_offset
+		uint32 :kernel_size
+		uint32 :initrd_offset
+		uint32 :initrd_size
+		uint32 :defaults_offset
+		uint32 :defaults_size
+		uint32 :kernel_sum
+		uint32 :initrd_sum
+		uint32 :defaults_sum
+		uint8  :magic1,[2]
+		uint8  :sig,[8]
+		uint8  :magic2,[2]
 		uint8  :product_id
 		uint8  :custom_id
 		uint8  :model_id
@@ -163,21 +192,57 @@ class DnsFirmware
 		uint8  :_1,[11]
 
 		def signature
-			sig.map { |c| c.chr }.join('')
+			sig.map { |c| c.chr }.join('').strip
 		end
 
 		def signature=(s)
-			self.sig = s  #s.split('').map { |c| c.ord }
+			self.sig = s
 		end
 
 		def valid?
-			signature[0]  == "\x55" and
-			signature[1]  == "\xAA" and
-			signature[9]  == "\0"   and
-			signature[10] == "\x55" and
-			signature[11] == "\xAA"
+			magic1 == [0x55, 0xAA] and
+			magic2 == [0x55, 0xAA]
 		end
 	end
+
+	class LongHeader < CStruct
+		uint32 :kernel_offset
+		uint32 :kernel_size
+		uint32 :initrd_offset
+		uint32 :initrd_size
+		uint32 :squashfs_offset
+		uint32 :squashfs_size
+		uint32 :defaults_offset
+		uint32 :defaults_size
+		uint32 :kernel_sum
+		uint32 :initrd_sum
+		uint32 :squashfs_sum
+		uint32 :defaults_sum
+		uint8  :magic1,[2]
+		uint8  :sig,[8]
+		uint8  :magic2,[2]
+		uint8  :product_id
+		uint8  :custom_id
+		uint8  :model_id
+		uint8  :compat_flag
+		uint8  :compat_id
+		uint8  :_1,[63]
+
+		def signature
+			sig.map { |c| c.chr }.join('').strip
+		end
+
+		def signature=(s)
+			self.sig = s
+		end
+
+		def valid?
+			magic1 == [0x55, 0xAA] and
+			magic2 == [0x55, 0xAA]
+		end
+	end
+
+	HEADER_FORMATS = [FrodoHeader, LongHeader]
 
 	# This class can be initialized two ways:
 	#
@@ -192,6 +257,10 @@ class DnsFirmware
 	#   * `:defaults_file` (optional) -- A file containing a compressed
 	#         tarball of configuration data; take a look at an existing
 	#         firmware file for your device to see what can be in there.
+	#
+	#   * `:squashfs_file` (optional) -- A file containing a squashfs
+	#         filesystem image.  Only some newer devices (DNS-320, etc)
+	#         make use of such a file.
 	#
 	#   * `:product_id` (required) -- The "product ID" to embed in the
 	#         firmware file.  What this needs to be set to is entirely
@@ -218,45 +287,72 @@ class DnsFirmware
 	#         file.  This is some sort of magic string that lets the firmware
 	#         loader know that its reading a real firmware file, as opposed
 	#         to some random gibberish.  What you need to set this to is
-	#         determined entirely by what your device expects to see.
+	#         determined entirely by what your device expects to see.  The
+	#         signature is also used to determine what kind of header to place
+	#         in front of the firmware.
 	#
 	def initialize(opts)
-		@header = FrodoHeader.new
 		@files  = {}
 
 		if opts.is_a? String
 			@firmware_file = opts
-			@header.data = File.read(@firmware_file, @header.class.size)
 
-			unless @header.valid?
-				$stderr.puts "Invalid header found in firmware file #{@firmware_file}"
+			candidate_formats = HEADER_FORMATS.select do |hf|
+				h = hf.new
+				h.data = File.read(@firmware_file, hf.size)
+				h.valid?
+			end
+
+			if candidate_formats.empty?
+				$stderr.puts "Unable to recognise the format of firmware file #{@firmware_file}"
+				$stderr.puts "The file may be corrupted, or this firmware may be a format I am not familiar with."
 				exit 1
 			end
+
+			if candidate_formats.length > 1
+				$stderr.puts "This firmware is of an ambiguous format."
+				$stderr.puts "Please inform theshed+dns323-firmware-tools@hezmatt.org, and include a"
+				$stderr.puts "link to the firmware file for testing."
+				exit 1
+			end
+
+			@header = candidate_formats.first.new
+			@header.data = File.read(@firmware_file, candidate_formats.first.size)
 
 			@files[:kernel] = KernelFile.new(
 			                               :contents => File.read(
 			                                                   @firmware_file,
-			                                                   @header.k_size,
-			                                                   @header.k_offset
+			                                                   @header.kernel_size,
+			                                                   @header.kernel_offset
 			                                                 ),
-			                               :checksum => @header.k_sum
+			                               :checksum => @header.kernel_sum
 			                             )
 			@files[:initrd] = InitrdFile.new(
 			                               :contents => File.read(
 			                                                   @firmware_file,
-			                                                   @header.i_size,
-			                                                   @header.i_offset
+			                                                   @header.initrd_size,
+			                                                   @header.initrd_offset
 			                                                 ),
-			                               :checksum => @header.i_sum
+			                               :checksum => @header.initrd_sum
 		                             )
-			if @header.d_size > 0
+			if @header.defaults_size > 0
 				@files[:defaults] = DefaultsFile.new(
 				                                   :contents => File.read(
 				                                                       @firmware_file,
-				                                                       @header.d_size,
-				                                                       @header.d_offset
+				                                                       @header.defaults_size,
+				                                                       @header.defaults_offset
 				                                                     ),
-				                                   :checksum => @header.d_sum
+				                                   :checksum => @header.defaults_sum
+				                                 )
+			end
+			if @header.respond_to?(:squashfs_size) and @header.squashfs_size > 0
+				@files[:squashfs] = SquashfsFile.new(
+				                                   :contents => File.read(
+				                                                       @firmware_file,
+				                                                       @header.squashfs_size,
+				                                                       @header.squashfs_offset
+				                                                     ),
+				                                   :checksum => @header.squashfs_sum
 				                                 )
 			end
 		elsif opts.is_a? Hash
@@ -272,12 +368,25 @@ class DnsFirmware
 			if opts[:defaults_file]
 				@files[:defaults] = DefaultsFile.new(:filename => opts[:defaults_file])
 			end
+			if opts[:squashfs_file]
+				@files[:squashfs] = SquashfsFile.new(:filename => opts[:squashfs_file])
+			end
 
 			@product_id    = opts[:product_id]    or raise ArgumentError.new("No :product_id provided")
 			@custom_id     = opts[:custom_id]     or raise ArgumentError.new("No :custom_id provided")
 			@model_id      = opts[:model_id]      or raise ArgumentError.new("No :model_id provided")
 			@compat_id     = opts[:compat_id]
 			@signature     = opts[:signature]     or raise ArgumentError.new("No :signature provided")
+
+			# This logic will probably have to be improved somewhat, likely via
+			# another option, in the future
+			if @signature =~ /^DNS32/
+				@header = LongHeader.new
+			else
+				@header = FrodoHeader.new
+			end
+
+			@header.magic1 = @header.magic2 = "\x55\xAA"
 		else
 			raise ArgumentError.new("Incorrect type passed to DnsFirmware#initialize.  String or Hash expected, got #{opts.class}")
 		end
@@ -311,39 +420,51 @@ class DnsFirmware
 		@files[:defaults]
 	end
 
+	def squashfs
+		@files[:squashfs]
+	end
+
 	# Return the signature of this firmware file.
 	def signature
-		if @header.signature =~ Regexp.new("^\x55\xAA(.{7})\0\x55\xAA$".force_encoding('binary'),
-		                                   Regexp::FIXEDENCODING)
-			return $1
-		else
-			raise RuntimeError.new("Unparseable signature string: #{@header.signature.inspect}")
-		end
+		@header.signature
 	end
 
 	# This method works from the kernel/initrd/defaults/etc data and writes out
 	# a complete firmware file to the destfile of your choosing.
 	def write_firmware_file(destfile)
-		@header.k_offset    = @header.class.size
-		@header.k_size      = @files[:kernel].size
-		@header.i_offset    = @header.class.size + @files[:kernel].size
-		@header.i_size      = @files[:initrd].size
-		@header.d_offset    = @header.class.size + @files[:kernel].size + @files[:initrd].size
-		@header.d_size      = @files[:defaults] ? @files[:defaults].size : 0
-		@header.k_sum       = @files[:kernel].checksum
-		@header.i_sum       = @files[:initrd].checksum
-		@header.d_sum       = @files[:defaults] ? @files[:defaults].checksum : 0
-		@header.signature   = "\x55\xAA#{@signature}\0\x55\xAA"
-		@header.product_id  = @product_id
-		@header.custom_id   = @custom_id
-		@header.model_id    = @model_id
-		@header.compat_flag = @compat_id.nil? ? 0 : 1
-		@header.compat_id   = @compat_id.to_i
+		@header.signature       = @signature
+		@header.product_id      = @product_id
+		@header.custom_id       = @custom_id
+		@header.model_id        = @model_id
+		@header.compat_flag     = @compat_id.nil? ? 0 : 1
+		@header.compat_id       = @compat_id.to_i
 
-		File.write(destfile, @header.data)
-		File.write(destfile, @files[:kernel].contents, :mode => 'a')
-		File.write(destfile, @files[:initrd].contents, :mode => 'a')
-		File.write(destfile, @files[:defaults].contents, :mode => 'a') if @files[:defaults]
+		file_offset = @header.class.size
+		file_types = @header.
+		               public_methods.
+		               grep(/_sum$/).
+		               map { |m| m.to_s.sub(/_sum$/, '').to_sym }
+
+
+		file_types.each do |f_type|
+			@header.send("#{f_type}_offset=".to_sym, file_offset)
+			if @files[f_type]
+				@header.send("#{f_type}_size=".to_sym, @files[f_type].size)
+				@header.send("#{f_type}_sum=".to_sym, @files[f_type].checksum)
+				file_offset += @files[f_type].size
+			else
+				@header.send("#{f_type}_size=".to_sym, 0)
+				@header.send("#{f_type}_sum=".to_sym, 0)
+			end
+		end
+
+		File.open(destfile, 'w') do |fd|
+			fd.write @header.data
+
+			file_types.each do |f_type|
+				fd.write @files[f_type].contents if @files[f_type]
+			end
+		end
 	end
 
 	def validate
@@ -366,6 +487,9 @@ def mkdns323fw(args)
 	opts.on('-d DEFAULTS', '--defaults DEFAULTS',
 	        "Specify the defaults.tar.gz to include in the firmware image (optional)",
 	        String) { |d| optargs[:defaults_file] = d }
+	opts.on('-s SQUASHFS', '--squashfs SQUASHFS',
+	        "Specify a squashfs filesystem image to include in the firmware image (optional)",
+	        String) { |d| optargs[:squashfs_file] = d }
 	opts.on('-o OUTPUT', '--output OUTPUT',
 	        "Specify where to put the resulting firmware image",
 	        String) { |o| optargs[:output] = o }
@@ -379,7 +503,7 @@ def mkdns323fw(args)
 	        "The model ID to embed in the firmware image",
 	        Integer) { |m| optargs[:model_id] = m }
 	opts.on('-s SIGNATURE', '--signature SIGNATURE',
-	        "The firmware signature type (either FrodoII, Chopper or Gandolf)",
+	        "The firmware signature type",
 	        String) { |s| optargs[:signature] = s }
 
 	opts.parse(args)
@@ -425,6 +549,9 @@ def splitdns323fw(args)
 	opts.on('-d DEFAULTS', '--defaults DEFAULTS',
 	        "Write out the defaults.tar.gz to the specified file",
 	        String) { |d| optargs[:defaults] = d }
+	opts.on('-d SQUASHFS', '--defaults SQUASHFS',
+	        "Write out the squashfs filesystem image to the specified file",
+	        String) { |d| optargs[:squashfs] = d }
 
 	image = opts.parse(args)
 
@@ -442,7 +569,7 @@ def splitdns323fw(args)
 
 	fw = DnsFirmware.new(image)
 
-	puts "#{fw.signature} firmware signature found"
+	puts "'#{fw.signature}' firmware signature found"
 
 	fw.kernel.validate or $stderr.puts "Kernel data failed checksum verification"
 	puts "Kernel is #{fw.kernel.size} bytes"
@@ -453,6 +580,13 @@ def splitdns323fw(args)
 		puts "defaults.tar.gz is #{fw.defaults.size} bytes"
 	else
 		puts "No defaults.tar.gz in this firmware file"
+	end
+
+	if fw.squashfs
+		fw.squashfs.validate or $stderr.puts "squashfs data failed checksum verification"
+		puts "squashfs is #{fw.squashfs.size} bytes"
+	else
+		puts "No squashfs in this firmware file"
 	end
 
 	puts "Product ID: #{fw.product_id}"
@@ -476,6 +610,15 @@ def splitdns323fw(args)
 			puts "defaults.tar.gz written to #{optargs[:defaults]}"
 		else
 			$stderr.puts "This firmware file does not have a defaults.tar.gz; not written"
+		end
+	end
+
+	if optargs[:squashfs]
+		if fw.squashfs
+			fw.squashfs.write(optargs[:squashfs])
+			puts "squashfs filesystem image written to #{optargs[:squashfs]}"
+		else
+			$stderr.puts "This firmware file does not have a squashfs filesystem image; not written"
 		end
 	end
 end
