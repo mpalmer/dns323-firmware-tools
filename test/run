@@ -125,6 +125,9 @@ tests.each_pair do |file, opts|
 
 		if origfw != newfw
 			puts "#{file}: Firmware regeneration did not produce a byte-for-byte identical result."
+			if origfw.length != newfw.length
+				puts "Lengths are different: orig=#{origfw.length}, new=#{newfw.length}"
+			end
 			`cmp #{DIR}/#{file} #{tmpdir}/firmware` =~ /differ: byte (\d+)/
 			fail_offset = $1.to_i - 1
 			puts "#{file}: First different byte is at offset #{fail_offset}: originally #{origfw[fail_offset].inspect}, regenerated as #{newfw[fail_offset].inspect}"
