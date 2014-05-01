@@ -29,10 +29,10 @@
 require 'optparse'
 
 begin
-	require 'cstruct'
+	require 'ffi'
 rescue LoadError
-	$stderr.puts "The 'cstruct' gem is not available."
-	$stderr.puts "Perhaps try running `gem install cstruct`"
+	$stderr.puts "The 'ffi' gem is not available."
+	$stderr.puts "Perhaps try running `gem install ffi`"
 	exit 1
 end
 
@@ -171,74 +171,100 @@ class DnsFirmware
 		end
 	end
 
-	class FrodoHeader < CStruct
-		uint32 :kernel_offset
-		uint32 :kernel_size
-		uint32 :initrd_offset
-		uint32 :initrd_size
-		uint32 :defaults_offset
-		uint32 :defaults_size
-		uint32 :kernel_sum
-		uint32 :initrd_sum
-		uint32 :defaults_sum
-		uint8  :magic1,[2]
-		uint8  :sig,[8]
-		uint8  :magic2,[2]
-		uint8  :product_id
-		uint8  :custom_id
-		uint8  :model_id
-		uint8  :compat_flag
-		uint8  :compat_id
-		uint8  :_1,[11]
+	class GenericHeader < FFI::Struct
+		def initialize(content = nil)
+			super()
 
-		def signature
-			sig.map { |c| c.chr }.join('').strip
+			if content
+				if content.length != self.size
+					raise ArgumentError,
+					      "Content passed to #{self.class}.new must be #{self.size} bytes"
+				end
+				self.to_ptr.write_string(content)
+			end
 		end
 
-		def signature=(s)
-			self.sig = s
-		end
-
-		def valid?
-			magic1 == [0x55, 0xAA] and
-			magic2 == [0x55, 0xAA]
+		def data
+			self.to_ptr.read_string(self.size)
 		end
 	end
 
-	class LongHeader < CStruct
-		uint32 :kernel_offset
-		uint32 :kernel_size
-		uint32 :initrd_offset
-		uint32 :initrd_size
-		uint32 :squashfs_offset
-		uint32 :squashfs_size
-		uint32 :defaults_offset
-		uint32 :defaults_size
-		uint32 :kernel_sum
-		uint32 :initrd_sum
-		uint32 :squashfs_sum
-		uint32 :defaults_sum
-		uint8  :magic1,[2]
-		uint8  :sig,[8]
-		uint8  :magic2,[2]
-		uint8  :product_id
-		uint8  :custom_id
-		uint8  :model_id
-		uint8  :compat_flag
-		uint8  :compat_id
-		uint8  :_1,[63]
+	class FrodoHeader < GenericHeader
+		layout :kernel_offset,   :uint32,
+		       :kernel_size,     :uint32,
+		       :initrd_offset,   :uint32,
+		       :initrd_size,     :uint32,
+		       :defaults_offset, :uint32,
+		       :defaults_size,   :uint32,
+		       :kernel_sum,      :uint32,
+		       :initrd_sum,      :uint32,
+		       :defaults_sum,    :uint32,
+		       :magic1,          [:uint8, 2],
+		       :sig,             [:uint8, 8],
+		       :magic2,          [:uint8, 2],
+		       :product_id,      :uint8,
+		       :custom_id,       :uint8,
+		       :model_id,        :uint8,
+		       :compat_flag,     :uint8,
+		       :compat_id,       :uint8,
+		       :_1,              [:uint8, 11]
 
 		def signature
-			sig.map { |c| c.chr }.join('').strip
+			self[:sig].to_ptr.read_string.strip
 		end
 
 		def signature=(s)
-			self.sig = s
+			if s.length > 8
+				raise ArgumentError,
+				      "Signature can be no more than 8 bytes"
+			end
+			self[:sig].to_ptr.write_string(s)
 		end
 
 		def valid?
-			magic1 == [0x55, 0xAA] and
-			magic2 == [0x55, 0xAA]
+			self[:magic1].to_s == "\x55\xAA".force_encoding("BINARY") and
+			self[:magic2].to_s == "\x55\xAA".force_encoding("BINARY")
+		end
+	end
+
+	class LongHeader < GenericHeader
+		layout :kernel_offset,   :uint32,
+		       :kernel_size,     :uint32,
+		       :initrd_offset,   :uint32,
+		       :initrd_size,     :uint32,
+		       :squashfs_offset, :uint32,
+		       :squashfs_size,   :uint32,
+		       :defaults_offset, :uint32,
+		       :defaults_size,   :uint32,
+		       :kernel_sum,      :uint32,
+		       :initrd_sum,      :uint32,
+		       :squashfs_sum,    :uint32,
+		       :defaults_sum,    :uint32,
+		       :magic1,          [:uint8, 2],
+		       :sig,             [:uint8, 8],
+		       :magic2,          [:uint8, 2],
+		       :product_id,      :uint8,
+		       :custom_id,       :uint8,
+		       :model_id,        :uint8,
+		       :compat_flag,     :uint8,
+		       :compat_id,       :uint8,
+		       :_1,              [:uint8, 63]
+
+		def signature
+			self[:sig].to_ptr.read_string.strip
+		end
+
+		def signature=(s)
+			if s.length > 8
+				raise ArgumentError,
+				      "Signature can be no more than 8 bytes"
+			end
+			self[:sig].to_ptr.write_string(s)
+		end
+
+		def valid?
+			self[:magic1].to_s == "\x55\xAA".force_encoding("BINARY") and
+			self[:magic2].to_s == "\x55\xAA".force_encoding("BINARY")
 		end
 	end
 
@@ -298,8 +324,7 @@ class DnsFirmware
 			@firmware_file = opts
 
 			candidate_formats = HEADER_FORMATS.select do |hf|
-				h = hf.new
-				h.data = File.read(@firmware_file, hf.size)
+				h = hf.new(File.read(@firmware_file, hf.size))
 				h.valid?
 			end
 
@@ -316,43 +341,42 @@ class DnsFirmware
 				exit 1
 			end
 
-			@header = candidate_formats.first.new
-			@header.data = File.read(@firmware_file, candidate_formats.first.size)
+			@header = candidate_formats.first.new(File.read(@firmware_file, candidate_formats.first.size))
 
 			@files[:kernel] = KernelFile.new(
 			                               :contents => File.read(
 			                                                   @firmware_file,
-			                                                   @header.kernel_size,
-			                                                   @header.kernel_offset
+			                                                   @header[:kernel_size],
+			                                                   @header[:kernel_offset]
 			                                                 ),
-			                               :checksum => @header.kernel_sum
+			                               :checksum => @header[:kernel_sum]
 			                             )
 			@files[:initrd] = InitrdFile.new(
 			                               :contents => File.read(
 			                                                   @firmware_file,
-			                                                   @header.initrd_size,
-			                                                   @header.initrd_offset
+			                                                   @header[:initrd_size],
+			                                                   @header[:initrd_offset]
 			                                                 ),
-			                               :checksum => @header.initrd_sum
+			                               :checksum => @header[:initrd_sum]
 		                             )
-			if @header.defaults_size > 0
+			if @header[:defaults_size] > 0
 				@files[:defaults] = DefaultsFile.new(
 				                                   :contents => File.read(
 				                                                       @firmware_file,
-				                                                       @header.defaults_size,
-				                                                       @header.defaults_offset
+				                                                       @header[:defaults_size],
+				                                                       @header[:defaults_offset]
 				                                                     ),
-				                                   :checksum => @header.defaults_sum
+				                                   :checksum => @header[:defaults_sum]
 				                                 )
 			end
-			if @header.respond_to?(:squashfs_size) and @header.squashfs_size > 0
+			if @header.members.include?(:squashfs_size) and @header[:squashfs_size] > 0
 				@files[:squashfs] = SquashfsFile.new(
 				                                   :contents => File.read(
 				                                                       @firmware_file,
-				                                                       @header.squashfs_size,
-				                                                       @header.squashfs_offset
+				                                                       @header[:squashfs_size],
+				                                                       @header[:squashfs_offset]
 				                                                     ),
-				                                   :checksum => @header.squashfs_sum
+				                                   :checksum => @header[:squashfs_sum]
 				                                 )
 			end
 		elsif opts.is_a? Hash
@@ -386,26 +410,26 @@ class DnsFirmware
 				@header = FrodoHeader.new
 			end
 
-			@header.magic1 = @header.magic2 = "\x55\xAA"
+			@header[:magic1] = @header[:magic2] = "\x55\xAA"
 		else
 			raise ArgumentError.new("Incorrect type passed to DnsFirmware#initialize.  String or Hash expected, got #{opts.class}")
 		end
 	end
 
 	def product_id
-		@header.product_id
+		@header[:product_id]
 	end
 
 	def custom_id
-		@header.custom_id
+		@header[:custom_id]
 	end
 
 	def model_id
-		@header.model_id
+		@header[:model_id]
 	end
 
 	def compat_id
-		@header.compat_flag ? @header.compat_id : nil
+		@header[:compat_flag] ? @header[:compat_id] : nil
 	end
 
 	def kernel
@@ -432,29 +456,29 @@ class DnsFirmware
 	# This method works from the kernel/initrd/defaults/etc data and writes out
 	# a complete firmware file to the destfile of your choosing.
 	def write_firmware_file(destfile)
-		@header.signature       = @signature
-		@header.product_id      = @product_id
-		@header.custom_id       = @custom_id
-		@header.model_id        = @model_id
-		@header.compat_flag     = @compat_id.nil? ? 0 : 1
-		@header.compat_id       = @compat_id.to_i
+		@header.signature         = @signature
+		@header[:product_id]      = @product_id
+		@header[:custom_id]       = @custom_id
+		@header[:model_id]        = @model_id
+		@header[:compat_flag]     = @compat_id.nil? ? 0 : 1
+		@header[:compat_id]       = @compat_id.to_i
 
-		file_offset = @header.class.size
+		file_offset = @header.size
 		file_types = @header.
-		               public_methods.
+		               members.
 		               grep(/_sum$/).
 		               map { |m| m.to_s.sub(/_sum$/, '').to_sym }
 
 
 		file_types.each do |f_type|
-			@header.send("#{f_type}_offset=".to_sym, file_offset)
+			@header["#{f_type}_offset".to_sym] = file_offset
 			if @files[f_type]
-				@header.send("#{f_type}_size=".to_sym, @files[f_type].size)
-				@header.send("#{f_type}_sum=".to_sym, @files[f_type].checksum)
+				@header["#{f_type}_size".to_sym] = @files[f_type].size
+				@header["#{f_type}_sum".to_sym] = @files[f_type].checksum
 				file_offset += @files[f_type].size
 			else
-				@header.send("#{f_type}_size=".to_sym, 0)
-				@header.send("#{f_type}_sum=".to_sym, 0)
+				@header["#{f_type}_size".to_sym] = 0
+				@header["#{f_type}_sum".to_sym] = 0
 			end
 		end
 

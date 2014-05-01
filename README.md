@@ -16,7 +16,7 @@ In order to run, this program requires:
 
  * Ruby 1.9 or above;
 
- * The `cstruct` gem (`gem install cstruct`);
+ * The `ffi` gem (`gem install ffi`);
 
  * A compatible firmware file, or the input files (kernel/initrd) to make
    into a firmware.
