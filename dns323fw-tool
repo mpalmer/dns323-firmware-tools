@@ -190,24 +190,24 @@ class DnsFirmware
 	end
 
 	class FrodoHeader < GenericHeader
-		layout :kernel_offset,   :uint32,
-		       :kernel_size,     :uint32,
-		       :initrd_offset,   :uint32,
-		       :initrd_size,     :uint32,
-		       :defaults_offset, :uint32,
-		       :defaults_size,   :uint32,
-		       :kernel_sum,      :uint32,
-		       :initrd_sum,      :uint32,
-		       :defaults_sum,    :uint32,
-		       :magic1,          [:uint8, 2],
-		       :sig,             [:uint8, 8],
-		       :magic2,          [:uint8, 2],
-		       :product_id,      :uint8,
-		       :custom_id,       :uint8,
-		       :model_id,        :uint8,
-		       :compat_flag,     :uint8,
-		       :compat_id,       :uint8,
-		       :_1,              [:uint8, 11]
+		layout :kernel_offset,   :uint32,      # 0
+		       :kernel_size,     :uint32,      # 4
+		       :initrd_offset,   :uint32,      # 8
+		       :initrd_size,     :uint32,      # 12
+		       :defaults_offset, :uint32,      # 16
+		       :defaults_size,   :uint32,      # 20
+		       :kernel_sum,      :uint32,      # 24
+		       :initrd_sum,      :uint32,      # 28
+		       :defaults_sum,    :uint32,      # 32
+		       :magic1,          [:uint8, 2],  # 36
+		       :sig,             [:uint8, 8],  # 38
+		       :magic2,          [:uint8, 2],  # 46
+		       :product_id,      :uint8,       # 48
+		       :custom_id,       :uint8,       # 49
+		       :model_id,        :uint8,       # 50
+		       :compat_flag,     :uint8,       # 51
+		       :compat_id,       :uint8,       # 52
+		       :_1,              [:uint8, 11]  # 53
 
 		def signature
 			self[:sig].to_ptr.read_string.strip
@@ -228,27 +228,27 @@ class DnsFirmware
 	end
 
 	class LongHeader < GenericHeader
-		layout :kernel_offset,   :uint32,
-		       :kernel_size,     :uint32,
-		       :initrd_offset,   :uint32,
-		       :initrd_size,     :uint32,
-		       :squashfs_offset, :uint32,
-		       :squashfs_size,   :uint32,
-		       :defaults_offset, :uint32,
-		       :defaults_size,   :uint32,
-		       :kernel_sum,      :uint32,
-		       :initrd_sum,      :uint32,
-		       :squashfs_sum,    :uint32,
-		       :defaults_sum,    :uint32,
-		       :magic1,          [:uint8, 2],
-		       :sig,             [:uint8, 8],
-		       :magic2,          [:uint8, 2],
-		       :product_id,      :uint8,
-		       :custom_id,       :uint8,
-		       :model_id,        :uint8,
-		       :compat_flag,     :uint8,
-		       :compat_id,       :uint8,
-		       :_1,              [:uint8, 63]
+		layout :kernel_offset,   :uint32,      # 0
+		       :kernel_size,     :uint32,      # 4
+		       :initrd_offset,   :uint32,      # 8
+		       :initrd_size,     :uint32,      # 12
+		       :squashfs_offset, :uint32,      # 16
+		       :squashfs_size,   :uint32,      # 20
+		       :defaults_offset, :uint32,      # 24
+		       :defaults_size,   :uint32,      # 28
+		       :kernel_sum,      :uint32,      # 32
+		       :initrd_sum,      :uint32,      # 36
+		       :squashfs_sum,    :uint32,      # 40
+		       :defaults_sum,    :uint32,      # 44
+		       :magic1,          [:uint8, 2],  # 48
+		       :sig,             [:uint8, 8],  # 50
+		       :magic2,          [:uint8, 2],  # 58
+		       :product_id,      :uint8,       # 60
+		       :custom_id,       :uint8,       # 61
+		       :model_id,        :uint8,       # 62
+		       :compat_flag,     :uint8,       # 63
+		       :compat_id,       :uint8,       # 64
+		       :_1,              [:uint8, 63]  # 65
 
 		def signature
 			self[:sig].to_ptr.read_string.strip
