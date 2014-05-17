@@ -522,6 +522,12 @@ def mkdns323fw(args)
 			:custom_id => 8,
 			:model_id  => 7
 		},
+		'DNS-320B' => {
+			:signature => 'DNS320B',
+			:prod_id   => 0,
+			:custom_id => 8,
+			:model_id  => 12
+		},
 		'DNS-320L' => {
 			:signature => 'DNS320L',
 			:prod_id   => 0,
