@@ -103,6 +103,10 @@ tests.each_pair do |file, opts|
 			end
 		end
 
+		unless infw.validate
+			fails << file
+		end
+
 		# OK, now that is over, let's put humpty back together again
 		outfw = DnsFirmware.new(
 		      {
