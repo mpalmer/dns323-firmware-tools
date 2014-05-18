@@ -648,19 +648,19 @@ def splitdns323fw(args)
 
 	puts "'#{fw.signature}' firmware signature found"
 
-	fw.kernel.validate or $stderr.puts "Kernel data failed checksum verification"
+	fw.kernel.validate or $stderr.puts "Kernel data failed validation"
 	puts "Kernel is #{fw.kernel.size} bytes"
-	fw.initrd.validate or $stderr.puts "Initrd data failed checksum verification"
+	fw.initrd.validate or $stderr.puts "Initrd data failed validation"
 	puts "initrd is #{fw.initrd.size} bytes"
 	if fw.defaults
-		fw.defaults.validate or $stderr.puts "Defaults data failed checksum verification"
+		fw.defaults.validate or $stderr.puts "Defaults data failed validation"
 		puts "defaults.tar.gz is #{fw.defaults.size} bytes"
 	else
 		puts "No defaults.tar.gz in this firmware file"
 	end
 
 	if fw.squashfs
-		fw.squashfs.validate or $stderr.puts "squashfs data failed checksum verification"
+		fw.squashfs.validate or $stderr.puts "squashfs data failed validation"
 		puts "squashfs is #{fw.squashfs.size} bytes"
 	else
 		puts "No squashfs in this firmware file"
