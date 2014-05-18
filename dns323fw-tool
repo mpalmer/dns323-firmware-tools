@@ -626,9 +626,9 @@ def splitdns323fw(args)
 	opts.on('-d DEFAULTS', '--defaults DEFAULTS',
 	        "Write out the defaults.tar.gz to the specified file",
 	        String) { |d| optargs[:defaults] = d }
-	opts.on('-d SQUASHFS', '--defaults SQUASHFS',
+	opts.on('-s SQUASHFS', '--squashfs SQUASHFS',
 	        "Write out the squashfs filesystem image to the specified file",
-	        String) { |d| optargs[:squashfs] = d }
+	        String) { |s| optargs[:squashfs] = s }
 
 	image = opts.parse(args)
 
