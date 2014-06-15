@@ -500,43 +500,43 @@ def mkdns323fw(args)
 	devices = {
 		'DNS-325' => {
 			:signature => 'DNS-325',
-			:prod_id   => 0,
+			:product_id   => 0,
 			:custom_id => 8,
 			:model_id  => 5
 		},
 		'DNS-323' => {
 			:signature => 'FrodoII',
-			:prod_id   => 7,
+			:product_id   => 7,
 			:custom_id => 1,
 			:model_id  => 1
 		},
 		'DNS-321' => {
 			:signature => 'Chopper',
-			:prod_id   => 10,
+			:product_id   => 10,
 			:custom_id => 1,
 			:model_id  => 1
 		},
 		'DNS-320' => {
 			:signature => 'DNS323D1',  # No, seriously...
-			:prod_id   => 0,
+			:product_id   => 0,
 			:custom_id => 8,
 			:model_id  => 7
 		},
 		'DNS-320B' => {
 			:signature => 'DNS320B',
-			:prod_id   => 0,
+			:product_id   => 0,
 			:custom_id => 8,
 			:model_id  => 12
 		},
 		'DNS-320L' => {
 			:signature => 'DNS320L',
-			:prod_id   => 0,
+			:product_id   => 0,
 			:custom_id => 8,
 			:model_id  => 11
 		},
 		'CH3SNAS' => {
 			:signature => 'FrodoII',
-			:prod_id   => 7,
+			:product_id   => 7,
 			:custom_id => 2,
 			:model_id  => 1
 		},
@@ -581,13 +581,13 @@ def mkdns323fw(args)
 
 	opts.parse(args)
 
-	opts = optargs
-
-	if optargs[:device]
-		optargs.merge(devices[optargs.delete(:device)])
+        if optargs[:device]
+          optargs = optargs.merge(devices[optargs.delete(:device)])
 	end
 
-	%w{kernel_file initrd_file output prod_id custom_id model_id}.each do |k|
+	opts = optargs
+
+	%w{kernel_file initrd_file output product_id custom_id model_id}.each do |k|
 		if opts[k.to_sym].nil?
 			$stderr.puts "Missing required argument #{k}"
 			exit 1
