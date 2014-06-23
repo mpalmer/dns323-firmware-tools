@@ -564,7 +564,7 @@ def mkdns323fw(args)
 	        String) { |o| optargs[:output] = o }
 	opts.on('-p PROD_ID', '--product-id PROD_ID',
 	        "The product ID to embed in the firmware image",
-	        Integer) { |p| optargs[:prod_id] = p }
+	        Integer) { |p| optargs[:product_id] = p }
 	opts.on('-c CUSTOM_ID', '--custom-id CUSTOM_ID',
 	        "The custom ID to embed in the firmware image",
 	        Integer) { |c| optargs[:custom_id] = c }
