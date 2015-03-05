@@ -584,7 +584,7 @@ def mkdns323fw(args)
 	opts = optargs
 
 	if optargs[:device]
-		optargs.merge(devices[optargs.delete(:device)])
+		optargs.merge!(devices[optargs.delete(:device)])
 	end
 
 	%w{kernel_file initrd_file output product_id custom_id model_id}.each do |k|
